@@ -1,0 +1,123 @@
+//! Thermal-to-structural coupling.
+//!
+//! Steady-state heat conduction itself is reused from `tpt-fem-thermal`; what
+//! is net-new is coupling the resulting temperature field into the structural
+//! solve as a thermal-strain load. For a linear tetrahedral element the
+//! stress-free thermal strain `ε_th = α (T - T_ref) · [1,1,1,0,0,0]` produces
+//! the element load `f_th = ∫ Bᵀ D ε_th dV`.
+
+use tpt_fem_mesh::{CellType, Mesh};
+use tpt_physics_core::Material;
+
+use crate::nonlinear::reference_basis;
+
+/// Element thermal-load vector (length 12) for a single tetrahedral element.
+pub fn tet4_thermal_load(
+    ref_coords: &[[f64; 3]; 4],
+    alpha: f64,
+    dt: f64,
+    lambda: f64,
+    mu: f64,
+) -> [f64; 12] {
+    let (gx, v0) = reference_basis(ref_coords);
+    let c0 = (3.0 * lambda + 2.0 * mu) * alpha * dt;
+    let mut f = [0.0; 12];
+    for a in 0..4 {
+        for i in 0..3 {
+            f[3 * a + i] = v0 * c0 * gx[a][i];
+        }
+    }
+    f
+}
+
+/// Assemble the global thermal-strain load vector for a mesh.
+///
+/// `temps` are the per-node temperatures; `t_ref` is the stress-free reference
+/// temperature. Each tetrahedral element contributes its [`tet4_thermal_load`]
+/// using the average temperature rise over its nodes.
+pub fn thermal_load_vector(
+    mesh: &Mesh,
+    dof_per_node: usize,
+    material: &Material,
+    temps: &[f64],
+    t_ref: f64,
+) -> Vec<f64> {
+    let lambda = material.lame_lambda();
+    let mu = material.shear_modulus();
+    let alpha = material.thermal_expansion;
+    let ndof = mesh.node_count() * dof_per_node;
+    let mut load = vec![0.0; ndof];
+
+    for e in &mesh.elements {
+        if e.cell_type != CellType::Tet {
+            continue;
+        }
+        let mut ref_coords = [[0.0; 3]; 4];
+        let mut dt_sum = 0.0;
+        for (k, &nid) in e.nodes.iter().enumerate() {
+            ref_coords[k] = [
+                mesh.nodes[nid].coords[0],
+                mesh.nodes[nid].coords[1],
+                mesh.nodes[nid].coords.get(2).copied().unwrap_or(0.0),
+            ];
+            dt_sum += temps[nid] - t_ref;
+        }
+        let dt_avg = dt_sum / 4.0;
+        let fe = tet4_thermal_load(&ref_coords, alpha, dt_avg, lambda, mu);
+        for (k, &nid) in e.nodes.iter().enumerate() {
+            for i in 0..3 {
+                if 3 * k + i < fe.len() {
+                    load[nid * dof_per_node + i] += fe[3 * k + i];
+                }
+            }
+        }
+    }
+    load
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tpt_fem_mesh::MeshBuilder;
+
+    fn steel() -> Material {
+        Material::new("Steel", 200e9, 0.3, 7850.0, 12e-6)
+    }
+
+    #[test]
+    fn zero_delta_zero_load() {
+        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let (la, mu) = (steel().lame_lambda(), steel().shear_modulus());
+        let f = tet4_thermal_load(&r, 12e-6, 0.0, la, mu);
+        assert!(f.iter().all(|v| *v == 0.0));
+    }
+
+    #[test]
+    fn single_tet_load_is_self_equilibrated() {
+        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let (la, mu) = (steel().lame_lambda(), steel().shear_modulus());
+        let f = tet4_thermal_load(&r, 12e-6, 100.0, la, mu);
+        let mut s = [0.0; 3];
+        for a in 0..4 {
+            for i in 0..3 {
+                s[i] += f[3 * a + i];
+            }
+        }
+        assert!(s.iter().all(|v| v.abs() < 1e-6), "sum = {:?}", s);
+    }
+
+    #[test]
+    fn mesh_thermal_load_sum_zero_for_uniform_temp() {
+        let mut b = MeshBuilder::new();
+        let n0 = b.add_node(vec![0.0, 0.0, 0.0]);
+        let n1 = b.add_node(vec![1.0, 0.0, 0.0]);
+        let n2 = b.add_node(vec![0.0, 1.0, 0.0]);
+        let n3 = b.add_node(vec![0.0, 0.0, 1.0]);
+        b.add_element(CellType::Tet, vec![n0, n1, n2, n3]);
+        let mesh = b.build();
+        let temps = vec![50.0, 50.0, 50.0, 50.0];
+        let load = thermal_load_vector(&mesh, 3, &steel(), &temps, 20.0);
+        let sum: f64 = load.iter().sum();
+        assert!(sum.abs() < 1e-6, "total load {sum}");
+    }
+}

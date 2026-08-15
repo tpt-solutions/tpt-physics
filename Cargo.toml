@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tpt-physics-core",
+    "crates/tpt-physics-solver",
+    "crates/tpt-physics-fea",
+    "crates/tpt-physics-dem",
+    "crates/tpt-physics-cfd",
+    "crates/tpt-physics-ai",
+]
+
+[workspace.package]
+description = "tpt-physics — a pure-Rust, AI-native engineering & physics simulation framework"
+authors = ["TPT Solutions"]
+edition = "2021"
+rust-version = "1.84"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/tpt-solutions/tpt-physics"
+repository = "https://github.com/tpt-solutions/tpt-physics"
+readme = "README.md"
+
+# Sibling crates (live outside this workspace; each carries its own
+# `[workspace.dependencies]` resolution for its transitive deps).
+[workspace.dependencies]
+tpt-math-units = { path = "../tpt-math/crates/tpt-math-units", default-features = false }
+tpt-math-units-dyn = { path = "../tpt-math/crates/tpt-math-units-dyn" }
+tpt-math-linalg-dense = { path = "../tpt-math/crates/tpt-math-linalg-dense" }
+tpt-math-linalg-fixed = { path = "../tpt-math/crates/tpt-math-linalg-fixed" }
+tpt-math-geometry = { path = "../tpt-math/crates/tpt-math-geometry" }
+tpt-math-autodiff = { path = "../tpt-math/crates/tpt-math-autodiff" }
+tpt-fem-mesh = { path = "../tpt-fem/crates/tpt-fem-mesh" }
+tpt-fem-mesh-gen = { path = "../tpt-fem/crates/tpt-fem-mesh-gen" }
+tpt-fem-element = { path = "../tpt-fem/crates/tpt-fem-element" }
+tpt-fem-quadrature = { path = "../tpt-fem/crates/tpt-fem-quadrature" }
+tpt-fem-sparse = { path = "../tpt-fem/crates/tpt-fem-sparse" }
+tpt-fem-assembly = { path = "../tpt-fem/crates/tpt-fem-assembly" }
+tpt-fem-elasticity = { path = "../tpt-fem/crates/tpt-fem-elasticity" }
+tpt-fem-thermal = { path = "../tpt-fem/crates/tpt-fem-thermal" }
+tpt-fem-eigen = { path = "../tpt-fem/crates/tpt-fem-eigen" }
+tpt-fem-solve = { path = "../tpt-fem/crates/tpt-fem-solve" }
+
+# Approved, license-vetted third-party dependencies (see deny.toml).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+tracing = "0.1"
+proptest = "1"
+bincode = "1"
+wide = "0.7"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+# tpt-physics is strictly memory-safe: no `unsafe` anywhere in the tree.
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+overflow-checks = true

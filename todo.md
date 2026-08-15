@@ -2,76 +2,203 @@
 
 TPT Solutions | Dual-licensed MIT / Apache-2.0
 
+> **2026-08-15 re-scope:** `tpt-math` and `tpt-fem` (sibling repos, both
+> workspace-complete) already implement most of Phase 0-1's foundational
+> scope. Items below are tagged `[REUSE]` (depend on the existing crate
+> directly — no `tpt-physics-*` wrapper, no re-export layer; a wrapper
+> around someone else's unmodified API is pure overhead), `[PARTIAL]`
+> (existing crate covers part of the item; the rest is net-new), or `[NEW]`
+> (nothing exists yet, build from scratch). See the crate map in Phase 0 for
+> exact source crates. **`tpt-physics-core` itself only needs to contain
+> code that is actually new** (material database, CAD ingestion adapter) —
+> units and mesh types are consumed straight from `tpt-math-units`/
+> `tpt-fem-mesh` by whichever `tpt-physics-*` crate needs them, not
+> re-exported through `tpt-physics-core`.
+
 ## Phase 0: Project Setup & Tooling
 - [x] Initialize git repository
 - [x] Add .gitignore (Rust workspace)
-- [ ] Add dual license files (LICENSE-MIT, LICENSE-APACHE-2.0; copyright TPT Solutions)
-- [ ] Set `license = "MIT OR Apache-2.0"` across all crate manifests
-- [ ] Scaffold Cargo workspace with member crates: tpt-physics-core, tpt-physics-solver,
+- [x] Add dual license files (LICENSE-MIT, LICENSE-APACHE-2.0; copyright TPT Solutions)
+- [x] Set `license = "MIT OR Apache-2.0"` across all crate manifests
+- [x] Scaffold Cargo workspace with member crates: tpt-physics-core, tpt-physics-solver,
       tpt-physics-fea, tpt-physics-dem, tpt-physics-cfd, tpt-physics-ai (optional)
-- [ ] Set up cargo-deny pipeline rejecting copyleft deps (GPL/LGPL/AGPL/SSPL)
-- [ ] Add approved dependency stack (faer, nalgebra, uom, rayon, wgpu, serde, bincode,
-      tracing, proptest), vetted via cargo-deny
-- [ ] Add root README (executive summary, architecture overview)
+- [x] Wire path/git deps on the sibling repos this phase reuses — each
+      `tpt-physics-*` crate depends on exactly the sibling crates it needs,
+      directly, no wrapper: `tpt-math-units`, `tpt-math-units-dyn`,
+      `tpt-math-linalg-dense`, `tpt-math-linalg-fixed`, `tpt-math-geometry`,
+      `tpt-math-autodiff`, `tpt-fem-mesh`, `tpt-fem-mesh-gen`,
+      `tpt-fem-element`, `tpt-fem-quadrature`, `tpt-fem-sparse`,
+      `tpt-fem-assembly`, `tpt-fem-elasticity`, `tpt-fem-thermal`,
+      `tpt-fem-eigen`, `tpt-fem-solve` (all at `C:\Programming\tpt-math` /
+      `C:\Programming\tpt-fem`, neither published to crates.io)
+- [x] Set up cargo-deny pipeline rejecting copyleft deps (GPL/LGPL/AGPL/SSPL)
+- [x] Add approved dependency stack (faer, nalgebra, uom, rayon, wgpu, serde, bincode,
+      tracing, proptest), vetted via cargo-deny — **note:** nalgebra is
+      Apache-2.0-only (disqualified per tpt-math's own license-compliance
+      fix); prefer `tpt-math-linalg-dense`/`tpt-math-linalg-fixed` instead
+- [x] Add root README (executive summary, architecture overview, crate-reuse map)
 
 ## Phase 1: Foundation & FEA MVP (Months 1-3)
 
 ### tpt-physics-core
-- [ ] Unit system: wrapper around `uom` enforcing strict SI unit typing
-- [ ] Mesh abstraction: topology-aware mesh (Nodes, Elements, Faces) ingesting
-      tpt-cad/biocad output without heavy STEP/IGES parsers
-- [ ] Material database: type-safe registry (Young's Modulus, Poisson's ratio,
-      density) with JSON/serde serialization
+- [x] `[REUSE, no work needed]` Unit system — every `tpt-physics-*` crate that
+      needs SI units depends on `tpt-math-units` (+ `tpt-math-units-dyn` for
+      runtime/config-driven units) directly. No wrapper in `tpt-physics-core`.
+- [x] `[PARTIAL]` Mesh ingestion: every `tpt-physics-*` crate that needs mesh
+      types depends on `tpt-fem-mesh` (Node/Element/Mesh, DOF numbering,
+      Gmsh import) + `tpt-fem-mesh-gen` (native tet generation, box mesher)
+      directly — no wrapper. **Net-new (belongs in `tpt-physics-core`):** an
+      ingestion adapter from `tpt-cad`/`biocad` output into `tpt-fem-mesh`'s
+      builder API — this does not exist in either sibling repo
+      (`crates/tpt-physics-core/src/cad.rs`, tested)
+- [x] `[NEW]` Material database: type-safe registry (Young's Modulus, Poisson's
+      ratio, density) with JSON/serde serialization — no equivalent exists
+      in `tpt-fem` or `tpt-math`; `tpt-fem-elasticity` takes material
+      constants as bare function args, not a registry. This is the actual
+      reason `tpt-physics-core` needs to exist as a crate.
+      (`crates/tpt-physics-core/src/material.rs`, tested)
 
 ### tpt-physics-solver
-- [ ] Sparse linear algebra on `faer`/`sprs`
-- [ ] Conjugate Gradient (CG) solver
-- [ ] GMRES solver
-- [ ] Time integration: Newmark-beta scheme
-- [ ] Time integration: Runge-Kutta scheme
-- [ ] Hardware dispatch API: route matrix ops to CPU (rayon) or GPU (wgpu/spark)
-      by problem size, with zero code changes for the end user
+- [x] `[REUSE, no work needed]` Sparse linear algebra: depend on
+      `tpt-fem-sparse` directly (COO/CSR assembly + faer sparse LU direct
+      solve, `solve_multi`) — no wrapper
+- [x] `[NEW]` Conjugate Gradient (CG) solver — `tpt-fem-sparse` only offers
+      direct LU; no iterative solver exists anywhere in either sibling repo
+      (`crates/tpt-physics-solver/src/cg.rs`, tested)
+- [x] `[NEW]` GMRES solver — same gap
+      (`crates/tpt-physics-solver/src/gmres.rs`, tested)
+- [x] `[NEW]` Time integration: Newmark-beta scheme — no dynamic time-stepping
+      exists (`tpt-fem-eigen`/`tpt-fem-elasticity::solve_modal` only do
+      frequency-domain modal analysis, not transient response)
+      (`crates/tpt-physics-solver/src/time_integration.rs`, tested)
+- [x] `[NEW]` Time integration: Runge-Kutta scheme — same gap
+- [x] `[NEW]` Hardware dispatch API: route matrix ops to CPU (rayon) or GPU
+      (wgpu/spark) by problem size — zero `wgpu` or `rayon` usage found
+      anywhere in `tpt-fem` or `tpt-math`; this is greenfield
+      (`crates/tpt-physics-solver/src/dispatch.rs`)
 
 ### tpt-physics-fea
-- [ ] Element types: linear and quadratic tetrahedrons
-- [ ] Element types: hexahedrons
-- [ ] Element types: beam/shell elements
-- [ ] Static linear stress/strain analysis
-- [ ] Modal analysis (natural frequencies)
-- [ ] Basic non-linear large-deformation analysis
-- [ ] Boundary conditions: fixed supports (builder API)
-- [ ] Boundary conditions: point loads
-- [ ] Boundary conditions: pressure loads
-- [ ] Boundary conditions: thermal gradients
+- [x] `[PARTIAL]` Element types: linear tetrahedrons — `tpt-fem-element`'s
+      `Tet4` is depended on directly, no wrapper. Quadratic tetrahedrons
+      (Tet10) are **explicitly deferred** in `tpt-fem-element`'s own todo —
+      that part is net-new and implemented here
+      (`crates/tpt-physics-fea/src/elements.rs`, tested)
+- [x] `[REUSE, no work needed]` Element types: hexahedrons — depend on
+      `tpt-fem-element`'s `Hex8` directly (quadratic Hex20/27 deferred
+      there too, same caveat as above)
+- [x] `[PARTIAL]` Element types: beam/shell elements — `tpt-fem-elasticity`
+      has a 2-D Euler-Bernoulli frame element (`beam2d_element_matrix`,
+      `solve_frame2d`) only. 3-D beam (torsion, biaxial bending, orientation
+      triad) and shell elements are net-new and implemented here
+      (`crates/tpt-physics-fea/src/elements.rs`, tested)
+- [x] `[REUSE, no work needed]` Static linear stress/strain analysis — depend
+      on `tpt-fem-elasticity` directly (bar/beam/plane-stress/plane-strain/
+      3-D continuum)
+- [x] `[REUSE, no work needed]` Modal analysis (natural frequencies) — depend
+      on `tpt-fem-elasticity::solve_modal` + `tpt-fem-eigen::
+      generalized_lanczos_eigs` directly
+- [x] `[PARTIAL]` Basic non-linear large-deformation analysis —
+      `tpt-fem-solve` has Newton-Raphson + Crisfield arc-length continuation,
+      but it's only been proven against a test-only hand-written truss
+      residual. A general geometric-nonlinearity framework across real
+      elements (updated/total Lagrangian, consistent tangent stiffness for
+      Tet4/Hex8/beam) does not exist and is the actual net-new work —
+      implemented here as a Total-Lagrangian St.Venant–Kirchhoff framework
+      for the continuum (`crates/tpt-physics-fea/src/nonlinear.rs`, tested)
+- [x] `[REUSE, no work needed]` Boundary conditions: fixed supports (builder
+      API) — depend on `tpt-fem-assembly`'s Dirichlet BCs directly
+- [x] `[REUSE, no work needed]` Boundary conditions: point loads — depend on
+      `tpt-fem-assembly` directly
+- [x] `[REUSE, no work needed]` Boundary conditions: pressure loads — depend
+      on `tpt-fem-assembly`'s Neumann/Robin BCs directly
+- [x] `[PARTIAL]` Boundary conditions: thermal gradients — depend on
+      `tpt-fem-thermal` directly for steady-state heat conduction/Poisson
+      (MMS-verified convergence); thermal-to-structural coupling (thermal
+      strain as a load on the elasticity solve) is net-new and implemented
+      here (`crates/tpt-physics-fea/src/thermal.rs`, tested)
 
 ### Milestone
-- [ ] Successfully simulate the 3D-printed pile cage spacer
+- [x] Successfully simulate the 3D-printed pile cage spacer — end-to-end
+      example + integration test wiring core (CAD→mesh via `cad.rs` +
+      `MaterialRegistry`) → `tpt-fem-mesh-gen` volume tet mesh →
+      `tpt-fem-elasticity::solve_elasticity` (Continuum3D). Verified: fixed
+      base stays put, free top compresses downward under self-weight, with
+      magnitude consistent with ρgh²/E
+      (`crates/tpt-physics-fea/examples/pile_cage_spacer.rs`,
+       `crates/tpt-physics-fea/tests/spacer_milestone.rs`)
 
 ## Phase 2: Granular Physics & Performance (Months 4-6)
 
 ### tpt-physics-dem
-- [ ] Hertz-Mindlin contact model
-- [ ] Friction and damping
-- [ ] Spatial hashing (broad-phase collision)
-- [ ] SIMD-accelerated narrow-phase contact resolution
-- [ ] Validate: wet concrete aggregate flow through a pile cage
-- [ ] Validate: soil-structure interaction around a 3D-printed spacer
+- [x] `[NEW]` Hertz-Mindlin contact model — no DEM/particle code exists in
+      either sibling repo (`crates/tpt-physics-dem/src/contact.rs`, tested)
+- [x] `[NEW]` Friction and damping
+- [x] `[NEW]` Spatial hashing (broad-phase collision)
+      (`crates/tpt-physics-dem/src/broadphase.rs`, tested)
+- [x] `[NEW]` SIMD-accelerated narrow-phase contact resolution
+      (`crates/tpt-physics-dem/src/simd.rs`, tested). **Bug fixed 2026-08-15:**
+      overlap used `2·r*` instead of `4·r*` (monodisperse `r1+r2 = 4 r*`),
+      zeroing the normal force.
+- [x] `[NEW]` Time integration: `World` driver (semi-implicit Euler) with
+      gravity + floor + pairwise contacts
+      (`crates/tpt-physics-dem/src/world.rs`, tested). **Bug fixed 2026-08-15:**
+      floor damping term was subtracted (energy injection) instead of added.
+- [ ] `[NEW]` Validate: wet concrete aggregate flow through a pile cage — the
+      generic granular-settling behaviour is now validated
+      (`crates/tpt-physics-dem/tests/granular_settling.rs`: a poured 75-sphere
+      pile settles without blow-up or interpenetration, residual KE → 0). The
+      *fluidized* driving term / cavity geometry specific to pile-cage flow is a
+      remaining extension.
+- [ ] `[NEW]` Validate: soil-structure interaction around a 3D-printed spacer —
+      same Hertz–Mindlin core; remaining work is a fixed cylindrical Obstacle
+      boundary in `World` (currently only a planar floor exists).
+- [ ] `[NEW]` Validate: hopper/silo discharge — classic granular flow-rate
+      benchmark (Beverloo correlation) independent of any specific geometry
+- [ ] `[NEW]` Validate: random close packing fraction of a poured sphere bed
+      (~0.64 for monodisperse spheres) — validates contact/broad-phase
+      against a known packing-density result
 
 ### Performance
-- [ ] GPU acceleration via spark/wgpu for large DEM particle counts (>100k particles)
+- [ ] `[NEW]` GPU acceleration via spark/wgpu for large DEM particle counts
+      (>100k particles) — depends on Phase 1's hardware-dispatch API
 
 ### tpt-physics-fea (extensions)
-- [ ] Non-linear FEA: large deformations
-- [ ] Non-linear FEA: plasticity
+- [x] `[NEW]` Non-linear FEA: plasticity (beyond the geometric-nonlinear
+      framework added in Phase 1) — von Mises (J2) return-mapping material
+      model with linear isotropic hardening (`crates/tpt-physics-fea/src/
+      plasticity.rs`, tested): stress-driven `return_map` (yield-surface
+      consistency, deviatoric flow) plus a strain-driven `update` wrapper,
+      matching the Voigt convention of `nonlinear.rs`.
+- [ ] `[NEW]` Validate: elastic-plastic notched plate / Cook's membrane
+      benchmark — standard J2 plasticity convergence check independent of
+      the spacer
 
 ## Phase 3: Fluid Dynamics & AI Integration (Months 7-12)
 
 ### tpt-physics-cfd
-- [ ] Lattice Boltzmann Method (LBM) solver for incompressible flow
+- [x] `[NEW]` Lattice Boltzmann Method (LBM) solver for incompressible flow —
+      no CFD code exists in either sibling repo. D2Q9 BGK with half-way
+      bounce-back, periodic streamwise + solid walls, body-force (velocity-
+      shift) term. Verified against analytic Poiseuille flow
+      (`crates/tpt-physics-cfd/src/{lib,lattice}.rs`, tested)
+- [ ] `[NEW]` Validate: lid-driven cavity flow — classic 2D CFD benchmark
+      (Ghia et al. reference velocity profiles) for vortex/recirculation
+      behavior beyond simple channel flow
+- [ ] `[NEW]` Validate: flow past a cylinder — vortex shedding / drag
+      coefficient vs. Reynolds number, to exercise unsteady flow around a
+      bluff body
 
 ### tpt-physics-ai
-- [ ] Differentiable physics wrappers exposing simulation state as a
-      Gymnasium-like environment for tpt-anima reinforcement-learning agents
+- [x] `[PARTIAL]` Differentiable physics wrappers exposing simulation state as
+      a Gymnasium-like environment for tpt-anima reinforcement-learning
+      agents — depend on `tpt-math-autodiff` directly (forward + reverse-mode
+      autodiff) as a base; the Gym-style environment wrapper itself is net-new
+      and implemented here: `GymEnv` trait, `DifferentiablePlant` trait
+      (forward-mode AD Jacobians), `GymWrapper`, and a differentiable
+      harmonic-oscillator plant (`crates/tpt-physics-ai/src/lib.rs`, tested)
+- [ ] `[NEW]` Add a second differentiable plant (e.g., pendulum or double
+      pendulum) to `GymEnv`/`DifferentiablePlant` — demonstrates the wrapper
+      isn't hard-coded to the harmonic oscillator
 
 ### Publishing
 - [ ] Comprehensive documentation

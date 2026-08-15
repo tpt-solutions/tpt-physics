@@ -1,0 +1,283 @@
+//! Differentiable physics wrappers exposing simulation state as
+//! Gymnasium-like RL environments for `tpt-anima` reinforcement-learning agents.
+//!
+//! Numerical differentiability is provided by [`tpt_math_autodiff`] (forward
+//! mode); the Gym-style wrapper itself is net-new to this crate. The design:
+//!
+//! * [`GymEnv`] — a minimal Gymnasium-like environment interface
+//!   (`reset` → observation, `step(action)` → `(observation, reward, done)`).
+//! * [`DifferentiablePlant`] — a physics model whose transition
+//!   `s' = f(s, a)` is differentiable; [`DifferentiablePlant::jacobians`]
+//!   returns `∂f/∂s` and `∂f/∂a` via a single forward-mode AD pass each.
+//! * [`GymWrapper`] — adapts any [`DifferentiablePlant`] into a [`GymEnv`],
+//!   so an RL agent can both act on and differentiate through the physics.
+
+use tpt_math_autodiff::fwd::Dual;
+use tpt_math_linalg_dense::DVector;
+
+/// A Gymnasium-style step result.
+#[derive(Debug, Clone)]
+pub struct Step {
+    /// Observation returned to the agent.
+    pub observation: DVector<f64>,
+    /// Scalar reward for this transition.
+    pub reward: f64,
+    /// Whether the episode has terminated.
+    pub terminated: bool,
+}
+
+/// A minimal Gymnasium-like environment.
+pub trait GymEnv {
+    /// Dimension of the observation vector.
+    fn observation_dim(&self) -> usize;
+    /// Dimension of the action vector.
+    fn action_dim(&self) -> usize;
+    /// Reset to an initial state and return the first observation.
+    fn reset(&mut self) -> DVector<f64>;
+    /// Apply `action`, advance one step, and return the next step.
+    fn step(&mut self, action: &DVector<f64>) -> Step;
+}
+
+/// A physics plant whose transition is differentiable via forward-mode AD.
+///
+/// Implementors fix their dimensions as associated constants so the derivative
+/// count is known at compile time (required by [`Dual`]).
+pub trait DifferentiablePlant {
+    /// State dimension `n`.
+    const S: usize;
+    /// Action dimension `m`.
+    const A: usize;
+
+    /// Primal (non-differentiated) transition `s' = f(s, a)`.
+    fn step_prim(&self, state: &[f64], action: &[f64]) -> Vec<f64>;
+
+    /// Transition evaluated on dual numbers, for autodiff.
+    fn dynamics_dual<const D: usize>(
+        &self,
+        state: &[Dual<f64, D>],
+        action: &[Dual<f64, D>],
+    ) -> Vec<Dual<f64, D>>;
+
+    /// Jacobians `(∂f/∂s, ∂f/∂a)` at `(state, action)` via forward-mode AD.
+    ///
+    /// Each input variable is seeded once as an independent variable (a single
+    /// forward-mode pass per input yields the full Jacobian column); see
+    /// [`HarmonicOscillator`] for a concrete implementation.
+    fn jacobians(&self, state: &[f64], action: &[f64]) -> (Vec<Vec<f64>>, Vec<Vec<f64>>);
+}
+
+/// A Gymnasium-like wrapper around a [`DifferentiablePlant`].
+///
+/// Holds the current state and a reward/cost mapping. The underlying plant
+/// remains reachable so an agent can query [`DifferentiablePlant::jacobians`]
+/// for policy-gradient or model-based RL.
+pub struct GymWrapper<P: DifferentiablePlant> {
+    plant: P,
+    state: Vec<f64>,
+    /// Maximum number of steps before the episode terminates.
+    pub max_steps: usize,
+    steps: usize,
+}
+
+impl<P: DifferentiablePlant> GymWrapper<P> {
+    /// Wrap `plant` starting from `initial_state`.
+    pub fn new(plant: P, initial_state: Vec<f64>, max_steps: usize) -> Self {
+        GymWrapper {
+            plant,
+            state: initial_state,
+            max_steps,
+            steps: 0,
+        }
+    }
+
+    /// The current raw plant state.
+    pub fn state(&self) -> &[f64] {
+        &self.state
+    }
+
+    /// The underlying differentiable plant (for gradient queries).
+    pub fn plant(&self) -> &P {
+        &self.plant
+    }
+
+    /// Current state/action Jacobians of the plant at the current state, with a
+    /// zero action.
+    pub fn gradients(&self) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+        let zero = vec![0.0; P::A];
+        self.plant.jacobians(&self.state, &zero)
+    }
+}
+
+impl<P: DifferentiablePlant> GymEnv for GymWrapper<P> {
+    fn observation_dim(&self) -> usize {
+        P::S
+    }
+
+    fn action_dim(&self) -> usize {
+        P::A
+    }
+
+    fn reset(&mut self) -> DVector<f64> {
+        self.steps = 0;
+        DVector::from_fn(P::S, |i| self.state[i])
+    }
+
+    fn step(&mut self, action: &DVector<f64>) -> Step {
+        let a: Vec<f64> = (0..P::A).map(|i| action[i]).collect();
+        let next = self.plant.step_prim(&self.state, &a);
+        // Reward: penalise squared state (regulation toward origin).
+        let reward = -self.state.iter().map(|s| s * s).sum::<f64>();
+        self.state = next;
+        self.steps += 1;
+        let terminated = self.steps >= self.max_steps;
+        let observation = DVector::from_fn(P::S, |i| self.state[i]);
+        Step {
+            observation,
+            reward,
+            terminated,
+        }
+    }
+}
+
+/// A 1-D damped harmonic oscillator with a force input — a canonical,
+/// analytically-checkable differentiable plant.
+///
+/// State `s = [x, v]` (position, velocity), action `a = [u]` (force).
+/// Continuous dynamics: `ẋ = v`, `ṽ = -(k x + c v)/m + u/m`,
+/// discretised with semi-implicit (symplectic) Euler (`dt`).
+pub struct HarmonicOscillator {
+    /// Stiffness `k`.
+    pub k: f64,
+    /// Damping `c`.
+    pub c: f64,
+    /// Mass `m`.
+    pub m: f64,
+    /// Time step.
+    pub dt: f64,
+}
+
+impl HarmonicOscillator {
+    /// A unit-mass oscillator with `k = c = 1`, `dt = 0.01`.
+    pub fn new() -> Self {
+        HarmonicOscillator {
+            k: 1.0,
+            c: 1.0,
+            m: 1.0,
+            dt: 0.01,
+        }
+    }
+}
+
+impl Default for HarmonicOscillator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DifferentiablePlant for HarmonicOscillator {
+    const S: usize = 2;
+    const A: usize = 1;
+
+    fn step_prim(&self, s: &[f64], a: &[f64]) -> Vec<f64> {
+        let (x, v) = (s[0], s[1]);
+        let acc = (a[0] - (self.k * x + self.c * v)) / self.m;
+        let v_new = v + self.dt * acc;
+        let x_new = x + self.dt * v_new;
+        vec![x_new, v_new]
+    }
+
+    fn dynamics_dual<const D: usize>(
+        &self,
+        s: &[Dual<f64, D>],
+        a: &[Dual<f64, D>],
+    ) -> Vec<Dual<f64, D>> {
+        let x = s[0];
+        let v = s[1];
+        let k = Dual::constant(self.k);
+        let c = Dual::constant(self.c);
+        let m = Dual::constant(self.m);
+        let dt = Dual::constant(self.dt);
+        let acc = (a[0] - (k.clone() * x + c.clone() * v)) / m.clone();
+        let v_new = v + dt * acc;
+        let x_new = x + dt * v_new;
+        vec![x_new, v_new]
+    }
+
+    fn jacobians(&self, state: &[f64], action: &[f64]) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+        // Inputs: x (0), v (1), u (2) → D = 3.
+        let s = [state[0], state[1]];
+        let a = [action[0]];
+        let mut jac = [[0.0_f64; 3]; 2];
+        for k in 0..3 {
+            let mut sd: Vec<Dual<f64, 3>> = s.iter().map(|&val| Dual::constant(val)).collect();
+            let mut ad: Vec<Dual<f64, 3>> = a.iter().map(|&val| Dual::constant(val)).collect();
+            if k < 2 {
+                sd[k] = Dual::variable(s[k], k);
+            } else {
+                ad[0] = Dual::variable(a[0], 2);
+            }
+            let out = self.dynamics_dual(&sd, &ad);
+            for i in 0..2 {
+                jac[i][k] = out[i].du(k);
+            }
+        }
+        let ds = (0..2).map(|i| (0..2).map(|j| jac[i][j]).collect()).collect();
+        let da = (0..2).map(|i| vec![jac[i][2]]).collect();
+        (ds, da)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oscillator_step_is_physical() {
+        let plant = HarmonicOscillator::new();
+        // From rest at x=1 with no force: should move toward 0 (velocity < 0).
+        let s = plant.step_prim(&[1.0, 0.0], &[0.0]);
+        assert!(s[0] < 1.0, "x = {}", s[0]);
+        assert!(s[1] < 0.0, "v = {}", s[1]);
+    }
+
+    #[test]
+    fn oscillator_jacobians_match_analytic() {
+        let plant = HarmonicOscillator::new();
+        let s = [0.5, 0.25];
+        let a = [0.1];
+        let (ds, da) = plant.jacobians(&s, &a);
+        let dt = plant.dt;
+        // Semi-implicit (symplectic) Euler jacobians:
+        // x' = x + dt·v' , v' = v + dt·(a − (k x + c v)/m).
+        // dx'/dx = 1 − dt²k/m, dx'/dv = dt(1 − dt c/m), dx'/da = dt²/m.
+        assert!((ds[0][0] - (1.0 - dt * dt * plant.k / plant.m)).abs() < 1e-9);
+        assert!((ds[0][1] - (dt * (1.0 - dt * plant.c / plant.m))).abs() < 1e-9);
+        assert!((da[0][0] - (dt * dt / plant.m)).abs() < 1e-9);
+        // dv'/dx = −k dt/m, dv'/dv = 1 − c dt/m, dv'/da = dt/m.
+        assert!((ds[1][0] - (-plant.k * dt / plant.m)).abs() < 1e-9);
+        assert!((ds[1][1] - (1.0 - plant.c * dt / plant.m)).abs() < 1e-9);
+        assert!((da[1][0] - (dt / plant.m)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gym_wrapper_runs_and_terminates() {
+        let plant = HarmonicOscillator::new();
+        let mut env = GymWrapper::new(plant, vec![1.0, 0.0], 10);
+        let mut obs = env.reset();
+        assert_eq!(obs.len(), 2);
+        let action = DVector::from_fn(1, |_| 0.0);
+        let mut steps = 0;
+        loop {
+            let step = env.step(&action);
+            steps += 1;
+            obs = step.observation;
+            assert!(obs.iter().all(|v| v.is_finite()));
+            if step.terminated {
+                break;
+            }
+        }
+        assert_eq!(steps, 10);
+        // State should have decayed toward 0 under damping.
+        assert!(env.state().iter().map(|v| v * v).sum::<f64>() < 1.0);
+    }
+}

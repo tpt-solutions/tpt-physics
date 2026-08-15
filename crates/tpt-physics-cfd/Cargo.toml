@@ -1,0 +1,23 @@
+[package]
+name = "tpt-physics-cfd"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Computational Fluid Dynamics: Lattice Boltzmann (D2Q9) incompressible flow solver."
+repository.workspace = true
+homepage = "https://github.com/tpt-solutions/tpt-physics"
+readme = "README.md"
+keywords = ["cfd", "lattice-boltzmann", "fluid", "simulation"]
+categories = ["science", "simulation", "mathematics"]
+
+[dependencies]
+rayon = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

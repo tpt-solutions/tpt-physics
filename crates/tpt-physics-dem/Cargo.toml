@@ -1,0 +1,25 @@
+[package]
+name = "tpt-physics-dem"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Discrete Element Method: Hertz-Mindlin contact, spatial hashing, and SIMD narrow-phase resolution."
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["dem", "granular", "contact", "particles", "simulation"]
+categories = ["science", "simulation", "mathematics"]
+
+[dependencies]
+tpt-physics-core = { path = "../tpt-physics-core" }
+rayon = { workspace = true }
+wide = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

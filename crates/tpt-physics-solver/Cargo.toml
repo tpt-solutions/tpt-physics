@@ -1,0 +1,24 @@
+[package]
+name = "tpt-physics-solver"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Iterative linear solvers (CG, GMRES), time integration, and CPU/GPU hardware dispatch for tpt-physics."
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["solver", "cg", "gmres", "newmark", "simulation"]
+categories = ["mathematics", "science", "algorithms", "simulation"]
+
+[dependencies]
+tpt-fem-sparse = { workspace = true }
+rayon = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
