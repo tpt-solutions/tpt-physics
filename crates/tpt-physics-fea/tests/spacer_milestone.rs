@@ -18,8 +18,11 @@ fn pile_cage_spacer_static_solve_is_physical() {
     let material = registry
         .get("PLA (3D print, ~50% infill)")
         .expect("PLA present");
-    let (young, poisson, density) =
-        (material.youngs_modulus, material.poissons_ratio, material.density);
+    let (young, poisson, density) = (
+        material.youngs_modulus,
+        material.poissons_ratio,
+        material.density,
+    );
 
     // CAD ingestion adapter produces a valid surface mesh of the footprint.
     let mut cad = CadSolid::new();

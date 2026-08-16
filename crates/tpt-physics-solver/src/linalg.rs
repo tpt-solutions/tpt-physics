@@ -56,11 +56,7 @@ impl DenseMat {
     /// Build a dense matrix from a row-major buffer of length `nrows*ncols`.
     pub fn from_row_major(nrows: usize, ncols: usize, data: Vec<f64>) -> Self {
         assert_eq!(data.len(), nrows * ncols);
-        DenseMat {
-            nrows,
-            ncols,
-            data,
-        }
+        DenseMat { nrows, ncols, data }
     }
 
     /// `A[i][j]`.
@@ -146,19 +142,14 @@ mod tests {
     #[test]
     fn csr_matvec_matches_dense() {
         // [[4,-1,0],[-1,4,-1],[0,-1,4]]
-        let csr = csr_from_dense(
-            3,
-            3,
-            &[
-                4.0, -1.0, 0.0, -1.0, 4.0, -1.0, 0.0, -1.0, 4.0,
-            ],
-        );
+        let csr = csr_from_dense(3, 3, &[4.0, -1.0, 0.0, -1.0, 4.0, -1.0, 0.0, -1.0, 4.0]);
         let x = [1.0, 2.0, 3.0];
         let mut y = [0.0; 3];
         csr.apply(&x, &mut y);
         assert_eq!(y, [2.0, 4.0, 10.0]);
 
-        let dense = DenseMat::from_row_major(3, 3, vec![4.0, -1.0, 0.0, -1.0, 4.0, -1.0, 0.0, -1.0, 4.0]);
+        let dense =
+            DenseMat::from_row_major(3, 3, vec![4.0, -1.0, 0.0, -1.0, 4.0, -1.0, 0.0, -1.0, 4.0]);
         let mut yd = [0.0; 3];
         dense.apply(&x, &mut yd);
         assert_eq!(y, yd);

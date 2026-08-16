@@ -20,12 +20,17 @@ impl SpatialHash {
     /// Build a hash from `particles` using the given `cell_size`.
     pub fn build(particles: &[Particle], cell_size: f64) -> Self {
         let n = particles.len();
-        let mut cells: std::collections::HashMap<[i64; 3], Vec<usize>> = std::collections::HashMap::new();
+        let mut cells: std::collections::HashMap<[i64; 3], Vec<usize>> =
+            std::collections::HashMap::new();
         for (i, p) in particles.iter().enumerate() {
             let key = Self::key(p.position, cell_size);
             cells.entry(key).or_default().push(i);
         }
-        SpatialHash { cell_size, n, cells }
+        SpatialHash {
+            cell_size,
+            n,
+            cells,
+        }
     }
 
     fn key(p: [f64; 3], cell_size: f64) -> [i64; 3] {

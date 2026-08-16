@@ -48,7 +48,10 @@ fn cylinder_steady_symmetric_wake() {
 
     // Reversed-flow recirculation just behind the cylinder.
     let behind = sim.ux[sim.idx(cx + 8, cy)];
-    assert!(behind < 0.0, "expected wake recirculation (u_x<0): {behind}");
+    assert!(
+        behind < 0.0,
+        "expected wake recirculation (u_x<0): {behind}"
+    );
 
     // Left–right symmetry: the wake transverse velocity should be ~0 along the
     // centre-line (no lift at steady state).
@@ -100,7 +103,10 @@ fn cylinder_vortex_shedding() {
     let max = uy_history.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     assert!(min.is_finite() && max.is_finite());
     // Shedding signature: the transverse velocity swings through zero.
-    assert!(min < 0.0 && max > 0.0, "no vortex shedding: uy in [{min}, {max}]");
+    assert!(
+        min < 0.0 && max > 0.0,
+        "no vortex shedding: uy in [{min}, {max}]"
+    );
     assert!(
         (max - min) > 0.005,
         "wake transverse velocity barely varies: range {}",

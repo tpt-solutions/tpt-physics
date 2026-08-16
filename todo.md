@@ -222,4 +222,83 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
 - [x] Benchmarks — `crates/tpt-physics-dem/examples/bench_large_scale.rs` and
       `crates/tpt-physics-cfd/tests/bench_large_scale.rs` added.
 - [x] "Spacer Benchmark" case study — `crates/tpt-physics-fea/examples/
-      spacer_benchmark.rs` added (full stack timed end-to-end).
+       spacer_benchmark.rs` added (full stack timed end-to-end).
+
+## Phase 4: Review-driven fixes, automation & adoption
+
+> Sprint opened 2026-08-16 from a full platform review (bugs, missing
+> features, innovation, usability). Items are tagged `[BUG]` (verified in
+> code), `[GAP]` (correctness/coverage hole), `[AUTO]` (CI/automation),
+> `[ADOPT]` (adoption/examples). Priority: P0 (correctness blocker) → P3.
+
+### P0 — Correctness bugs (verified)
+- [x] `[BUG]` Fix 3D beam bending stiffness missing `L`/`L²` factors —
+      `crates/tpt-physics-fea/src/elements.rs:276-291` (block) called at
+      `:240-241` with `c = E·I/L³`. Use `(EI/L³)·[[12,6L,-12,6L],[6L,4L²,-6L,2L²],
+      …]`. Add a cantilever test with `L ≠ 1` so the bug can't regress.
+- [x] `[BUG]` Fix DEM restitution→damping ratio formula — `contact.rs:72` and
+      `obstacle.rs:166`. Use `ζ = -ln(e)/√(π² + (ln e)²)`; also set contact
+      stiffness `kn = 2·E*·√R*·√δ` (tangent), not the Hertzian force, in
+      `contact.rs:68` / `obstacle.rs:161`. Add a restitution regression test.
+- [x] `[BUG]` Fix/isolate CFD `lid_driven_cavity` test — `tests/
+      lid_driven_cavity.rs`. Lower to `Re ≲ 100` (smaller `u_lid` / larger
+      `τ`), add residual-based convergence stop, `#[ignore]` the 250k-step run
+      (or gate behind `release`), and verify the primary vortex. Currently
+      FAILING + >3 min in debug.
+
+### P1 — Correctness & coverage gaps
+- [ ] `[GAP]` Fix Mindlin–Reissner shell shear-sign conventions in
+      `elements.rs:429-431` so the element is rigid-body exact; validate
+      against a plate benchmark (Scordelis–Lo / Morley).
+- [ ] `[GAP]` Add degenerate/inverted-element guards (`det ≈ 0 → error`) in
+      `elements.rs:10` (`mat3_inv`), `nonlinear.rs:35` (`inv3`), and take
+      `abs(detj)` in `tet10_stiffness`.
+- [ ] `[GAP]` Make `World::step_par` apply obstacle de-penetration (or fall
+      back to sequential `step` with a logged warning) so the >100k path is
+      physically correct with obstacles.
+- [ ] `[GAP]` Reword README/lib.rs that imply Hex8/beam nonlinear frameworks
+      (only Tet4 continuum nonlinear + J2 exist); mark GPU dispatch,
+      GMRES-preconditioned, and shell elements "experimental".
+- [ ] `[GAP]` Wire up `bincode` checkpoint/resume of simulation state, or drop
+      the unused dep.
+
+### P2 — Missing features
+- [ ] `[GAP]` Add GMRES preconditioning + lightweight AMG/multigrid (mirror
+      `cg_pc`); keep `cg`/`gmres` API consistent.
+- [ ] `[GAP]` Add CFD characteristic/outflow boundary (replace crude
+      zero-gradient + reflective `clamp_wall`).
+- [ ] `[GAP]` Implement a real GPU compute path (`wgpu`/`spark`) behind the
+      existing `HardwareDispatch` instead of `BackendUnavailable`.
+- [ ] `[GAP]` Add declarative JSON/YAML problem spec (mesh + BCs + material +
+      solver) reusing `MaterialRegistry::from_json`.
+- [ ] `[GAP]` Add cohesive/bonded DEM contacts and inter-particle heat
+      transfer.
+
+### P3 — Innovation
+- [ ] `[ADOPT]` Build gradient-based / topology design optimization on the
+      `tpt-math-autodiff` differentiable path (`tpt-physics-ai`).
+- [ ] `[ADOPT]` WASM web playground (load mesh → run CFD/DEM → WebGL view).
+- [ ] `[ADOPT]` Uncertainty quantification (Monte-Carlo over materials via
+      `proptest`).
+
+### P2 — Automation `[AUTO]`
+- [x] Add GitHub Actions: build+test (stable + nightly), `cargo clippy
+      -- -D warnings`, `cargo fmt --check`, `cargo deny check`, doc build.
+- [x] Add `rustfmt.toml` pinning formatting.
+- [ ] Replace manual `eprintln!` timing examples with a `criterion` bench
+      harness + long-term tracking.
+- [ ] Add per-crate runnable `/// ``` ` doctests (only `core` has one today).
+
+### P1 — Adoption & examples `[ADOPT]`
+- [ ] Publish `tpt-math`/`tpt-fem` to crates.io (or git deps) so
+      `cargo add tpt-physics-*` works without sibling clones; fix
+      `deny.toml [sources]` to match actual usage.
+- [ ] Add `scripts/bootstrap.ps1`/`.sh` + `justfile` (`just setup/check/test/
+      bench`) for sibling-dep setup.
+- [ ] Ship a `cargo-generate` template repo `tpt-physics-template`.
+- [ ] Add per-domain "hello world" examples: `beam.rs`, `cavity.rs`,
+      `granular_pile.rs`, `rl_pendulum.rs`.
+- [ ] Add an example-gallery doc + `gallery` runner binary.
+- [ ] Add a Python (PyO3) thin binding over FEA/DEM `World`.
+- [ ] README: Quickstart, Troubleshooting (sibling deps), examples index,
+      "validated vs experimental" table.

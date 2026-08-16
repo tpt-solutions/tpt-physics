@@ -20,7 +20,11 @@ fn main() {
     let material = registry
         .get("PLA (3D print, ~50% infill)")
         .expect("PLA present in default registry");
-    let (young, poisson, density) = (material.youngs_modulus, material.poissons_ratio, material.density);
+    let (young, poisson, density) = (
+        material.youngs_modulus,
+        material.poissons_ratio,
+        material.density,
+    );
     println!(
         "Material: {}  E={:.3e} Pa  nu={:.3}  rho={:.1} kg/m^3",
         material.name, young, poisson, density
@@ -109,10 +113,9 @@ fn main() {
         }
     }
     let top_disp_y = u[top_node * 3 + 1];
-    let top_disp_mag = (u[top_node * 3].powi(2)
-        + u[top_node * 3 + 1].powi(2)
-        + u[top_node * 3 + 2].powi(2))
-    .sqrt();
+    let top_disp_mag =
+        (u[top_node * 3].powi(2) + u[top_node * 3 + 1].powi(2) + u[top_node * 3 + 2].powi(2))
+            .sqrt();
     let strain_est = density * g * h / young;
     let settle_est = strain_est * h;
 
@@ -120,9 +123,7 @@ fn main() {
     println!("Solve time            : {solve_time:?}");
     println!("Max |displacement|     : {max_disp:.3e} m");
     println!("Bottom (fixed) max |u| : {bottom_disp:.3e} m");
-    println!(
-        "Top-centre disp (y)    : {top_disp_y:.3e} m  (mag {top_disp_mag:.3e})"
-    );
+    println!("Top-centre disp (y)    : {top_disp_y:.3e} m  (mag {top_disp_mag:.3e})");
     println!("Settlement estimate ρgh²/E : {settle_est:.3e} m");
 
     assert!(bottom_disp < 1e-12, "fixed base must not move");

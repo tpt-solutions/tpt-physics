@@ -221,7 +221,9 @@ impl DifferentiablePlant for HarmonicOscillator {
                 jac[i][k] = out[i].du(k);
             }
         }
-        let ds = (0..2).map(|i| (0..2).map(|j| jac[i][j]).collect()).collect();
+        let ds = (0..2)
+            .map(|i| (0..2).map(|j| jac[i][j]).collect())
+            .collect();
         let da = (0..2).map(|i| vec![jac[i][2]]).collect();
         (ds, da)
     }
@@ -316,7 +318,9 @@ impl DifferentiablePlant for Pendulum {
                 jac[i][k] = out[i].du(k);
             }
         }
-        let ds = (0..2).map(|i| (0..2).map(|j| jac[i][j]).collect()).collect();
+        let ds = (0..2)
+            .map(|i| (0..2).map(|j| jac[i][j]).collect())
+            .collect();
         let da = (0..2).map(|i| vec![jac[i][2]]).collect();
         (ds, da)
     }

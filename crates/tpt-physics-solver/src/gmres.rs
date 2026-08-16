@@ -33,7 +33,14 @@ pub fn gmres<A: LinearOperator + ?Sized>(
 
     let bnorm = norm2(b);
     if bnorm == 0.0 {
-        return Ok((vec![0.0; n], SolveReport { iterations: 0, residual: 0.0, converged: true }));
+        return Ok((
+            vec![0.0; n],
+            SolveReport {
+                iterations: 0,
+                residual: 0.0,
+                converged: true,
+            },
+        ));
     }
 
     let mut x = match x0 {
@@ -50,10 +57,20 @@ pub fn gmres<A: LinearOperator + ?Sized>(
         let beta = norm2(&r);
         let residual0 = beta / bnorm;
         if residual0 < tol {
-            return Ok((x, SolveReport { iterations, residual: residual0, converged: true }));
+            return Ok((
+                x,
+                SolveReport {
+                    iterations,
+                    residual: residual0,
+                    converged: true,
+                },
+            ));
         }
         if iterations >= total {
-            return Err(SolverError::NotConverged { iterations, residual: residual0 });
+            return Err(SolverError::NotConverged {
+                iterations,
+                residual: residual0,
+            });
         }
 
         // Arnoldi basis and Hessenberg matrix.
@@ -125,7 +142,10 @@ pub fn gmres<A: LinearOperator + ?Sized>(
                 if rep.converged {
                     return Ok((x, rep));
                 }
-                return Err(SolverError::NotConverged { iterations, residual });
+                return Err(SolverError::NotConverged {
+                    iterations,
+                    residual,
+                });
             }
         }
 
@@ -171,19 +191,21 @@ mod tests {
 
     struct CsrMock(Csr);
     impl LinearOperator for CsrMock {
-        fn nrows(&self) -> usize { self.0.nrows }
-        fn ncols(&self) -> usize { self.0.ncols }
-        fn apply(&self, x: &[f64], y: &mut [f64]) { self.0.apply(x, y) }
+        fn nrows(&self) -> usize {
+            self.0.nrows
+        }
+        fn ncols(&self) -> usize {
+            self.0.ncols
+        }
+        fn apply(&self, x: &[f64], y: &mut [f64]) {
+            self.0.apply(x, y)
+        }
     }
 
     #[test]
     fn gmres_solves_nonsymmetric() {
         // A genuinely non-symmetric 3x3 system.
-        let data = vec![
-            4.0, 1.0, 0.0,
-            -1.0, 3.0, 1.0,
-            0.0, 2.0, 5.0,
-        ];
+        let data = vec![4.0, 1.0, 0.0, -1.0, 3.0, 1.0, 0.0, 2.0, 5.0];
         let a = CsrMock(csr_from_dense(3, 3, &data));
         let b = [5.0, 5.0, 14.0];
         let (x, rep) = gmres(&a, &b, None, 3, 1e-10, 50).expect("gmres");
@@ -191,7 +213,12 @@ mod tests {
         let mut ax = [0.0; 3];
         a.apply(&x, &mut ax);
         for i in 0..3 {
-            assert!((ax[i] - b[i]).abs() < 1e-7, "row {i}: got {} want {}", ax[i], b[i]);
+            assert!(
+                (ax[i] - b[i]).abs() < 1e-7,
+                "row {i}: got {} want {}",
+                ax[i],
+                b[i]
+            );
         }
         assert!(rep.converged);
     }

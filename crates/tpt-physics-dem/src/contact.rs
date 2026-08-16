@@ -32,6 +32,20 @@ pub fn hertz_normal_force(e_star: f64, r_star: f64, delta: f64) -> f64 {
     }
 }
 
+/// Map a coefficient of restitution `e ∈ [0, 1)` to the critical-damping
+/// ratio `ζ` used for the (linearised) Hertzian contact normal damping:
+/// `ζ = -ln(e) / √(π² + (ln e)²)`.
+///
+/// Returns `1.0` (critically/over-damped) for `e → 0`.
+pub(crate) fn restitution_to_zeta(restitution: f64) -> f64 {
+    if restitution < 1e-6 {
+        1.0
+    } else {
+        let le = -restitution.ln();
+        le / (std::f64::consts::PI * std::f64::consts::PI + le * le).sqrt()
+    }
+}
+
 /// Contact force on particle `i` from particle `j`.
 ///
 /// Returns the force vector `[fx, fy, fz]` to add to particle `i` (the equal
@@ -64,13 +78,10 @@ pub fn contact_force(
         ri.velocity[2] - rj.velocity[2],
     ];
     let vn = rv[0] * n[0] + rv[1] * n[1] + rv[2] * n[2];
-    // Damping coefficient from restitution (critical-damping form).
-    let kn = (4.0 / 3.0) * e_star * r_star.sqrt() * delta.sqrt();
-    let zeta = if restitution < 1e-6 {
-        1.0
-    } else {
-        -restitution.ln() / (std::f64::consts::PI * restitution.hypot(2.0 / restitution.ln()))
-    };
+    // Tangent normal contact stiffness dF_n/dδ = 2 E* √R* √δ (Hertzian), used
+    // for the critical-damping coefficient below.
+    let kn = 2.0 * e_star * r_star.sqrt() * delta.sqrt();
+    let zeta = restitution_to_zeta(restitution);
     let cn = 2.0 * zeta * (kn * m_eff).sqrt();
     let f_n = fn_hertz - cn * vn; // repulsive when overlapping & approaching
 
@@ -80,11 +91,7 @@ pub fn contact_force(
     }
 
     // Tangential friction (Mindlin elastic stiffness + Coulomb cap).
-    let vt = [
-        rv[0] - vn * n[0],
-        rv[1] - vn * n[1],
-        rv[2] - vn * n[2],
-    ];
+    let vt = [rv[0] - vn * n[0], rv[1] - vn * n[1], rv[2] - vn * n[2]];
     let vt_mag = (vt[0] * vt[0] + vt[1] * vt[1] + vt[2] * vt[2]).sqrt();
     if vt_mag > 1e-12 {
         let kt = 8.0 * (e_star / (2.0 * (1.0 + 0.3))) * r_star.sqrt() * delta.sqrt();
@@ -132,5 +139,23 @@ mod tests {
         let f = contact_force(&a, &b, e_star, 0.5, 0.3);
         // `b` lies at +x, so the repulsive force on `a` points -x (away from `b`).
         assert!(f[0] < 0.0, "fx = {}", f[0]);
+    }
+
+    #[test]
+    fn restitution_to_zeta_matches_closed_form() {
+        // ζ = -ln(e) / √(π² + (ln e)²) (mass-spring-dashpot relation).
+        let cases = [
+            (0.0, 1.0), // fully inelastic ⇒ critical damping
+            (0.2, 0.4560),
+            (0.5, 0.2156),
+            (0.9, 0.0335),
+        ];
+        for (e, expected) in cases {
+            let z = restitution_to_zeta(e);
+            assert!(
+                (z - expected).abs() < 1e-3,
+                "ζ(e={e}) = {z:.4}, expected {expected}"
+            );
+        }
     }
 }

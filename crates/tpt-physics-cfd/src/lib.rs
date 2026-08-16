@@ -383,8 +383,18 @@ mod tests {
         let f = D2Q9::equilibrium(1.3, [0.1, -0.05]);
         let rho: f64 = f.iter().sum();
         assert!((rho - 1.3).abs() < 1e-12, "rho = {rho}");
-        let ux = f.iter().enumerate().map(|(k, fk)| fk * D2Q9::E[k].0 as f64).sum::<f64>() / rho;
-        let uy = f.iter().enumerate().map(|(k, fk)| fk * D2Q9::E[k].1 as f64).sum::<f64>() / rho;
+        let ux = f
+            .iter()
+            .enumerate()
+            .map(|(k, fk)| fk * D2Q9::E[k].0 as f64)
+            .sum::<f64>()
+            / rho;
+        let uy = f
+            .iter()
+            .enumerate()
+            .map(|(k, fk)| fk * D2Q9::E[k].1 as f64)
+            .sum::<f64>()
+            / rho;
         assert!((ux - 0.1).abs() < 1e-12, "ux = {ux}");
         assert!((uy + 0.05).abs() < 1e-12, "uy = {uy}");
     }

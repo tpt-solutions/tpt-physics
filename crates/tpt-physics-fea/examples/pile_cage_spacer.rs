@@ -127,10 +127,9 @@ fn main() {
         }
     }
     let top_disp_y = u[top_node * 3 + 1];
-    let top_disp_mag = (u[top_node * 3].powi(2)
-        + u[top_node * 3 + 1].powi(2)
-        + u[top_node * 3 + 2].powi(2))
-    .sqrt();
+    let top_disp_mag =
+        (u[top_node * 3].powi(2) + u[top_node * 3 + 1].powi(2) + u[top_node * 3 + 2].powi(2))
+            .sqrt();
 
     println!("--- Results ---");
     println!("Max |displacement|      : {max_disp:.3e} m");
@@ -144,15 +143,19 @@ fn main() {
 
     // Physical sanity checks.
     assert!(bottom_disp < 1e-12, "fixed base must not move");
-    assert!(top_disp_y < 0.0, "free top must compress downward under self-weight");
-    assert!(top_disp_mag > 0.0, "load must produce measurable deformation");
+    assert!(
+        top_disp_y < 0.0,
+        "free top must compress downward under self-weight"
+    );
+    assert!(
+        top_disp_mag > 0.0,
+        "load must produce measurable deformation"
+    );
     // Closed-form sanity: vertical strain ≈ ρ g h / E, so top settlement
     // ≈ strain · h. Allow an order of magnitude either way.
     let strain_est = density * g * h / young;
     let settle_est = strain_est * h;
-    println!(
-        "Settlement estimate ρgh²/E  : {settle_est:.3e} m  (sim top_y = {top_disp_y:.3e})"
-    );
+    println!("Settlement estimate ρgh²/E  : {settle_est:.3e} m  (sim top_y = {top_disp_y:.3e})");
     assert!(
         top_disp_y.abs() < settle_est * 10.0 && top_disp_y.abs() > settle_est * 0.01,
         "top settlement far from ρgh²/E estimate"

@@ -43,7 +43,14 @@ pub fn cg_pc<A: LinearOperator + ?Sized>(
     }
     let bnorm = norm2(b);
     if bnorm == 0.0 {
-        return Ok((vec![0.0; n], SolveReport { iterations: 0, residual: 0.0, converged: true }));
+        return Ok((
+            vec![0.0; n],
+            SolveReport {
+                iterations: 0,
+                residual: 0.0,
+                converged: true,
+            },
+        ));
     }
 
     let mut x = match x0 {
@@ -67,7 +74,14 @@ pub fn cg_pc<A: LinearOperator + ?Sized>(
 
     let mut residual = norm2(&r) / bnorm;
     if residual < tol {
-        return Ok((x, SolveReport { iterations: 0, residual, converged: true }));
+        return Ok((
+            x,
+            SolveReport {
+                iterations: 0,
+                residual,
+                converged: true,
+            },
+        ));
     }
 
     let mut ap = vec![0.0; n];
@@ -86,7 +100,14 @@ pub fn cg_pc<A: LinearOperator + ?Sized>(
         }
         residual = norm2(&r) / bnorm;
         if residual < tol {
-            return Ok((x, SolveReport { iterations, residual, converged: true }));
+            return Ok((
+                x,
+                SolveReport {
+                    iterations,
+                    residual,
+                    converged: true,
+                },
+            ));
         }
         let mut z_new = vec![0.0; n];
         match apply_p {
@@ -101,7 +122,10 @@ pub fn cg_pc<A: LinearOperator + ?Sized>(
         rz_old = rz_new;
     }
 
-    Err(SolverError::NotConverged { iterations, residual })
+    Err(SolverError::NotConverged {
+        iterations,
+        residual,
+    })
 }
 
 #[cfg(test)]
@@ -127,9 +151,15 @@ mod tests {
 
     struct CsrMock(Csr);
     impl LinearOperator for CsrMock {
-        fn nrows(&self) -> usize { self.0.nrows }
-        fn ncols(&self) -> usize { self.0.ncols }
-        fn apply(&self, x: &[f64], y: &mut [f64]) { self.0.apply(x, y) }
+        fn nrows(&self) -> usize {
+            self.0.nrows
+        }
+        fn ncols(&self) -> usize {
+            self.0.ncols
+        }
+        fn apply(&self, x: &[f64], y: &mut [f64]) {
+            self.0.apply(x, y)
+        }
     }
 
     #[test]
@@ -157,6 +187,9 @@ mod tests {
         // 2x3 operator that actually spans three columns.
         let a = CsrMock(csr_from_dense(2, 3, &[1.0, 0.0, 1.0, 0.0, 1.0, 0.0]));
         let b = vec![1.0, 1.0];
-        assert!(matches!(cg(&a, &b, None, 1e-9, 5), Err(SolverError::NotSquare { .. })));
+        assert!(matches!(
+            cg(&a, &b, None, 1e-9, 5),
+            Err(SolverError::NotSquare { .. })
+        ));
     }
 }

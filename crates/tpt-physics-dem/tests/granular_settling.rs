@@ -49,7 +49,10 @@ fn poured_pile_settles_without_blowup_or_interpenetration() {
     for p in &world.particles {
         assert!(p.position.iter().all(|c| c.is_finite()));
         assert!(p.velocity.iter().all(|v| v.is_finite()));
-        assert!(p.position[1] >= world.floor_y - 1e-3, "particle below floor");
+        assert!(
+            p.position[1] >= world.floor_y - 1e-3,
+            "particle below floor"
+        );
     }
 
     // 2. No gross interpenetration.
@@ -59,10 +62,8 @@ fn poured_pile_settles_without_blowup_or_interpenetration() {
         for b in (a + 1)..n {
             let pa = &world.particles[a].position;
             let pb = &world.particles[b].position;
-            let d = ((pa[0] - pb[0]).powi(2)
-                + (pa[1] - pb[1]).powi(2)
-                + (pa[2] - pb[2]).powi(2))
-            .sqrt();
+            let d = ((pa[0] - pb[0]).powi(2) + (pa[1] - pb[1]).powi(2) + (pa[2] - pb[2]).powi(2))
+                .sqrt();
             min_d = min_d.min(d);
         }
     }

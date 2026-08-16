@@ -8,8 +8,7 @@
 
 /// 3×3 matrix inverse (row-major `m`, length 9). Panics on singular input.
 fn mat3_inv(m: &[f64; 9]) -> [f64; 9] {
-    let det = m[0] * (m[4] * m[8] - m[5] * m[7])
-        - m[1] * (m[3] * m[8] - m[5] * m[6])
+    let det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6])
         + m[2] * (m[3] * m[7] - m[4] * m[6]);
     let inv = 1.0 / det;
     [
@@ -128,8 +127,7 @@ pub fn tet10_stiffness(nodes: &[[f64; 3]; 10], e: f64, nu: f64) -> Vec<f64> {
                 }
             }
         }
-        let detj = j[0] * (j[4] * j[8] - j[5] * j[7])
-            - j[1] * (j[3] * j[8] - j[5] * j[6])
+        let detj = j[0] * (j[4] * j[8] - j[5] * j[7]) - j[1] * (j[3] * j[8] - j[5] * j[6])
             + j[2] * (j[3] * j[7] - j[4] * j[6]);
         let inv = mat3_inv(&j);
 
@@ -237,8 +235,8 @@ pub fn beam3d_global_stiffness(
     kl[9 * 12 + 3] = -gj_l;
     kl[9 * 12 + 9] = gj_l;
     // Bending blocks.
-    let _ = add_beam_bending(&mut kl, &[1, 5, 7, 11], e * iz / l.powi(3)); // v-θz (about z)
-    let _ = add_beam_bending(&mut kl, &[2, 4, 8, 10], e * iy / l.powi(3)); // w-θy (about y)
+    let _ = add_beam_bending(&mut kl, &[1, 5, 7, 11], e * iz, l); // v-θz (about z)
+    let _ = add_beam_bending(&mut kl, &[2, 4, 8, 10], e * iy, l); // w-θy (about y)
 
     // T = block-diagonal(R) (12×12). Kg = Tᵀ Kl T.
     let mut t = [0.0; 144];
@@ -273,13 +271,19 @@ pub fn beam3d_global_stiffness(
     kg
 }
 
-fn add_beam_bending(k: &mut [f64; 144], dofs: &[usize; 4], c: f64) {
-    // 4×4 bending block on the given DOFs.
+fn add_beam_bending(k: &mut [f64; 144], dofs: &[usize; 4], ei: f64, l: f64) {
+    // Euler–Bernoulli bending block for the DOFs [v1, θ1, v2, θ2]:
+    //   (EI/L³) · [[ 12,   6L,  -12,   6L],
+    //              [ 6L,  4L²,  -6L,  2L²],
+    //              [-12,  -6L,   12,  -6L],
+    //              [ 6L,  2L²,  -6L,  4L²]]
+    let c = ei / l.powi(3);
+    let l2 = l * l;
     let block = [
-        [12.0, 6.0, -12.0, 6.0],
-        [6.0, 4.0, -6.0, 2.0],
-        [-12.0, -6.0, 12.0, -6.0],
-        [6.0, 2.0, -6.0, 4.0],
+        [12.0, 6.0 * l, -12.0, 6.0 * l],
+        [6.0 * l, 4.0 * l2, -6.0 * l, 2.0 * l2],
+        [-12.0, -6.0 * l, 12.0, -6.0 * l],
+        [6.0 * l, 2.0 * l2, -6.0 * l, 4.0 * l2],
     ];
     for i in 0..4 {
         for j in 0..4 {
@@ -336,16 +340,27 @@ pub fn shell4_stiffness(
     let d = e * thick * thick * thick / (12.0 * (1.0 - nu * nu));
     // Bending constitutive (κ_xx, κ_yy, κ_xy).
     let db = [
-        d, d * nu, 0.0, //
-        d * nu, d, 0.0, //
-        0.0, 0.0, d * (1.0 / 2.0 - nu / 2.0),
+        d,
+        d * nu,
+        0.0, //
+        d * nu,
+        d,
+        0.0, //
+        0.0,
+        0.0,
+        d * (1.0 / 2.0 - nu / 2.0),
     ];
     let gs = kappa * e / (2.0 * (1.0 + nu)) * thick; // shear modulus * κ * t
 
     let mut k = vec![0.0; 144];
 
     // Bending: 2×2 Gauss.
-    for &(xi, eta, w) in &[(-0.57735026919, -0.57735026919, 1.0), (0.57735026919, -0.57735026919, 1.0), (-0.57735026919, 0.57735026919, 1.0), (0.57735026919, 0.57735026919, 1.0)] {
+    for &(xi, eta, w) in &[
+        (-0.57735026919, -0.57735026919, 1.0),
+        (0.57735026919, -0.57735026919, 1.0),
+        (-0.57735026919, 0.57735026919, 1.0),
+        (0.57735026919, 0.57735026919, 1.0),
+    ] {
         let (_n, dn) = shape(xi, eta);
         // Jacobian of (x,y) wrt (xi,eta).
         let mut j = [[0.0; 2]; 2];
@@ -501,7 +516,12 @@ mod tests {
             for j in 0..30 {
                 let diff = (k[i * 30 + j] - k[j * 30 + i]).abs();
                 let scale = k[i * 30 + j].abs() + k[j * 30 + i].abs() + 1.0;
-                assert!(diff / scale < 1e-6, "{i},{j}: {} vs {}", k[i * 30 + j], k[j * 30 + i]);
+                assert!(
+                    diff / scale < 1e-6,
+                    "{i},{j}: {} vs {}",
+                    k[i * 30 + j],
+                    k[j * 30 + i]
+                );
             }
         }
         // xᵀ K x > 0 for a non-rigid displacement.
@@ -551,11 +571,62 @@ mod tests {
         }
         let mut fred = [0.0; 6];
         fred[1] = -p; // -y load
-        // Solve the reduced 6×6 system directly.
+                      // Solve the reduced 6×6 system directly.
         let mut u = [0.0; 6];
         let _ = solve_6x6(&kr, &fred, &mut u);
         let expected = p * l * l * l / (3.0 * e * iz);
-        assert!((u[1] - (-expected)).abs() < expected * 1e-6, "tip δ = {}, expected {}", u[1], -expected);
+        assert!(
+            (u[1] - (-expected)).abs() < expected * 1e-6,
+            "tip δ = {}, expected {}",
+            u[1],
+            -expected
+        );
+    }
+
+    #[test]
+    fn beam3d_cantilever_tip_deflection_l2() {
+        // Same cantilever but with L = 2.0 (non-unit length) so the bending
+        // block's L / L² factors are actually exercised. Analytic δ = P L³/(3 E I_z).
+        let e = 200e9;
+        let nu = 0.3;
+        let g = e / (2.0 * (1.0 + nu));
+        let l = 2.0;
+        let b = 0.1;
+        let h = 0.1;
+        let area = b * h;
+        let iz = b * h * h * h / 12.0;
+        let iy = h * b * b * b / 12.0;
+        let kg = beam3d_global_stiffness(
+            [0.0, 0.0, 0.0],
+            [l, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e,
+            g,
+            area,
+            iy,
+            iz,
+            area * (b * b + h * h) / 12.0,
+        );
+        let p = 1000.0;
+        let free: Vec<usize> = (6..12).collect();
+        let mut kr = [[0.0; 6]; 6];
+        for (i, &fi) in free.iter().enumerate() {
+            for (j, &fj) in free.iter().enumerate() {
+                kr[i][j] = kg[fi * 12 + fj];
+            }
+        }
+        let mut fred = [0.0; 6];
+        fred[1] = -p;
+        let mut u = [0.0; 6];
+        let _ = solve_6x6(&kr, &fred, &mut u);
+        let expected = p * l * l * l / (3.0 * e * iz);
+        // y-deflection is free index 1; should match analytic to 1e-6.
+        assert!(
+            (u[1] - (-expected)).abs() < expected * 1e-6,
+            "tip δ = {}, expected {}",
+            u[1],
+            -expected
+        );
     }
 
     #[test]
@@ -571,7 +642,12 @@ mod tests {
             for j in 0..12 {
                 let diff = (k[i * 12 + j] - k[j * 12 + i]).abs();
                 let scale = k[i * 12 + j].abs() + k[j * 12 + i].abs() + 1.0;
-                assert!(diff / scale < 1e-6, "{i},{j}: {} vs {}", k[i * 12 + j], k[j * 12 + i]);
+                assert!(
+                    diff / scale < 1e-6,
+                    "{i},{j}: {} vs {}",
+                    k[i * 12 + j],
+                    k[j * 12 + i]
+                );
             }
         }
     }

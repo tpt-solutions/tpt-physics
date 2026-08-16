@@ -8,8 +8,8 @@
 //! either sibling repo, so this is genuinely net-new code that belongs here
 //! rather than in `tpt-physics-core`'s reused sibling crates.
 
-use tpt_fem_mesh::{CellType, Mesh, MeshBuilder};
 use tpt_fem_mesh::MeshError;
+use tpt_fem_mesh::{CellType, Mesh, MeshBuilder};
 
 /// A single 3-D vertex of a CAD solid.
 #[derive(Debug, Clone, PartialEq)]
@@ -161,13 +161,15 @@ impl CadIngestor for CadSolid {
                 let a = node_of[face.vertices[0]];
                 let b = node_of[face.vertices[t + 1]];
                 let c = node_of[face.vertices[t + 2]];
-                builder.add_element_with_region(CellType::Tri, vec![a, b, c], face.region.unwrap_or(0));
+                builder.add_element_with_region(
+                    CellType::Tri,
+                    vec![a, b, c],
+                    face.region.unwrap_or(0),
+                );
             }
         }
 
-        builder
-            .try_build()
-            .map_err(CadError::InvalidMesh)
+        builder.try_build().map_err(CadError::InvalidMesh)
     }
 }
 

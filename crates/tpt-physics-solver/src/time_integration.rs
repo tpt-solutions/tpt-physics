@@ -120,7 +120,10 @@ impl NewmarkBeta {
     ) -> Result<Self, SolverError> {
         let n = m.nrows();
         if m.ncols() != n || c.nrows() != n || c.ncols() != n || k.nrows() != n || k.ncols() != n {
-            return Err(SolverError::NotSquare { nrows: n, ncols: k.ncols() });
+            return Err(SolverError::NotSquare {
+                nrows: n,
+                ncols: k.ncols(),
+            });
         }
         let a0v = match a0 {
             Some(a) => a,
@@ -134,7 +137,13 @@ impl NewmarkBeta {
                     kv[i] += cv[i];
                 }
                 // Solve M a0 = -kv via CG.
-                let (a, _) = cg(&*m, &kv.iter().map(|x| -x).collect::<Vec<_>>(), None, 1e-10, 200)?;
+                let (a, _) = cg(
+                    &*m,
+                    &kv.iter().map(|x| -x).collect::<Vec<_>>(),
+                    None,
+                    1e-10,
+                    200,
+                )?;
                 a
             }
         };
@@ -246,10 +255,8 @@ mod tests {
         let c = Box::new(DenseMat::from_row_major(1, 1, vec![0.0]));
         let k = Box::new(DenseMat::from_row_major(1, 1, vec![1.0]));
         let dt = 0.01;
-        let mut integ = NewmarkBeta::new(
-            m, c, k, dt, 0.25, 0.5, vec![1.0], vec![0.0], None,
-        )
-        .expect("newmark build");
+        let mut integ = NewmarkBeta::new(m, c, k, dt, 0.25, 0.5, vec![1.0], vec![0.0], None)
+            .expect("newmark build");
         let steps = 628; // ≈ 2π
         for _ in 0..steps {
             integ.step(&[0.0]).expect("step");
@@ -274,7 +281,12 @@ mod tests {
         }
         let t = steps as f64 * dt;
         let analytic = 1.0 - t.cos();
-        assert!((integ.u[0] - analytic).abs() < 2e-2, "x({t}) = {}, analytic {}", integ.u[0], analytic);
+        assert!(
+            (integ.u[0] - analytic).abs() < 2e-2,
+            "x({t}) = {}, analytic {}",
+            integ.u[0],
+            analytic
+        );
     }
 
     #[test]

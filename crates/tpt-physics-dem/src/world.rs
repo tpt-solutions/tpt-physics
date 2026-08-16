@@ -108,7 +108,8 @@ impl World {
             if pen > 0.0 {
                 let f_n = hertz_normal_force(self.e_star, self.particles[i].radius, pen);
                 let vn = self.particles[i].velocity[1];
-                let damp = -2.0 * (self.e_star * self.particles[i].radius * self.particles[i].mass).sqrt()
+                let damp = -2.0
+                    * (self.e_star * self.particles[i].radius * self.particles[i].mass).sqrt()
                     * self.restitution
                     * vn.min(0.0);
                 // `damp` is already the upward damping force magnitude (it is
@@ -225,10 +226,7 @@ impl World {
                 if pen > 0.0 {
                     let f_n = hertz_normal_force(e_star, pi.radius, pen);
                     let vn = pi.velocity[1];
-                    let damp = -2.0
-                        * (e_star * pi.radius * pi.mass).sqrt()
-                        * rest
-                        * vn.min(0.0);
+                    let damp = -2.0 * (e_star * pi.radius * pi.mass).sqrt() * rest * vn.min(0.0);
                     f[1] += f_n + damp;
                 }
                 // Pairwise contacts (force on i from each neighbour j).
@@ -327,9 +325,7 @@ impl World {
             }
             for i in 0..self.particles.len() {
                 for obs in &self.obstacles {
-                    if let Some((_f, corr)) =
-                        obs.resolve(&self.particles[i], e_star, mu, rest)
-                    {
+                    if let Some((_f, corr)) = obs.resolve(&self.particles[i], e_star, mu, rest) {
                         self.particles[i].position[0] += corr[0];
                         self.particles[i].position[1] += corr[1];
                         self.particles[i].position[2] += corr[2];

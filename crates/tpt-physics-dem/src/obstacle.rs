@@ -12,6 +12,7 @@
 //! * [`Obstacle::Plane`] — a half-space wall (oriented by an outward normal),
 //!   used to build hopper funnels and rectangular containments.
 
+use crate::contact::restitution_to_zeta;
 use crate::particle::Particle;
 
 /// A fixed, immovable boundary that particles bounce off / settle against.
@@ -84,7 +85,16 @@ impl Resolution {
                 axis,
                 radius,
                 half_height,
-            } => Self::cylinder(p, center, axis, *radius, *half_height, e_star, mu, restitution),
+            } => Self::cylinder(
+                p,
+                center,
+                axis,
+                *radius,
+                *half_height,
+                e_star,
+                mu,
+                restitution,
+            ),
             Obstacle::Plane {
                 point,
                 normal,
@@ -157,14 +167,11 @@ fn contact(
     restitution: f64,
 ) -> Resolution {
     let pr = p.radius;
-    // Hertz normal stiffness and critical damping (rigid obstacle ⇒ m_eff = m).
-    let kn = (4.0 / 3.0) * e_star * pr.sqrt() * pen.sqrt();
+    // Hertz normal stiffness (tangent, dF_n/dδ = 2 E* √r √δ) and critical
+    // damping (rigid obstacle ⇒ m_eff = m).
+    let kn = 2.0 * e_star * pr.sqrt() * pen.sqrt();
     let fn_hertz = (4.0 / 3.0) * e_star * pr.sqrt() * pen.powf(1.5);
-    let zeta = if restitution < 1e-6 {
-        1.0
-    } else {
-        -restitution.ln() / (std::f64::consts::PI * restitution.hypot(2.0 / restitution.ln()))
-    };
+    let zeta = restitution_to_zeta(restitution);
     let cn = 2.0 * zeta * (kn * p.mass).sqrt();
     let vn = dot(p.velocity, n);
     let f_n = fn_hertz - cn * vn; // repulsive when overlapping & approaching

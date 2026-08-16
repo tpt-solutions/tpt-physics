@@ -86,7 +86,12 @@ mod tests {
 
     #[test]
     fn zero_delta_zero_load() {
-        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let r = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
         let (la, mu) = (steel().lame_lambda(), steel().shear_modulus());
         let f = tet4_thermal_load(&r, 12e-6, 0.0, la, mu);
         assert!(f.iter().all(|v| *v == 0.0));
@@ -94,7 +99,12 @@ mod tests {
 
     #[test]
     fn single_tet_load_is_self_equilibrated() {
-        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let r = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
         let (la, mu) = (steel().lame_lambda(), steel().shear_modulus());
         let f = tet4_thermal_load(&r, 12e-6, 100.0, la, mu);
         let mut s = [0.0; 3];

@@ -117,7 +117,9 @@ impl PlasticMaterial {
     pub fn von_mises(&self, sigma: &[f64; 6]) -> f64 {
         let s = Self::deviatoric(sigma);
         // s:s (tensor) = Σ s_ii² + 2 Σ s_ij², with engineering shear in s[3..].
-        let ss = s[0] * s[0] + s[1] * s[1] + s[2] * s[2]
+        let ss = s[0] * s[0]
+            + s[1] * s[1]
+            + s[2] * s[2]
             + 2.0 * (s[3] * s[3] + s[4] * s[4] + s[5] * s[5]);
         (1.5 * ss).sqrt()
     }
@@ -128,7 +130,11 @@ impl PlasticMaterial {
     /// unchanged and the stress is returned as-is. Otherwise the stress is
     /// projected back onto the yield surface along the von Mises flow
     /// direction and the plastic state is updated.
-    pub fn return_map(&self, sigma_trial: &[f64; 6], prev: &PlasticState) -> ([f64; 6], PlasticState) {
+    pub fn return_map(
+        &self,
+        sigma_trial: &[f64; 6],
+        prev: &PlasticState,
+    ) -> ([f64; 6], PlasticState) {
         let q = self.von_mises(sigma_trial);
         let yield_stress = self.sigma_y0 + self.hard * prev.eq_plastic_strain;
         let phi = q - yield_stress;
@@ -138,7 +144,9 @@ impl PlasticMaterial {
 
         let g = self.shear();
         let s = Self::deviatoric(sigma_trial);
-        let ss = s[0] * s[0] + s[1] * s[1] + s[2] * s[2]
+        let ss = s[0] * s[0]
+            + s[1] * s[1]
+            + s[2] * s[2]
             + 2.0 * (s[3] * s[3] + s[4] * s[4] + s[5] * s[5]);
         let norm = ss.sqrt();
         let dg = phi / (3.0 * g + self.hard);
@@ -209,7 +217,10 @@ mod tests {
         // Yield-surface consistency: von Mises == hardened yield stress.
         let q = mat.von_mises(&sigma);
         let yield_stress = mat.sigma_y0 + mat.hard * state.eq_plastic_strain;
-        assert!((q - yield_stress).abs() < 1.0, "q={q}, yield={yield_stress}");
+        assert!(
+            (q - yield_stress).abs() < 1.0,
+            "q={q}, yield={yield_stress}"
+        );
         // Stress is relieved below the trial.
         assert!(sigma[0] < trial[0]);
         // Plastic strain accumulated.
@@ -256,7 +267,14 @@ mod tests {
         // Uniaxial *stress* of 100 MPa corresponds (elastically) to strain
         // ε = [σ/E, -νσ/E, -νσ/E, 0,0,0]; below yield → pure elastic.
         let s = 100e6;
-        let e_strain = [s / mat.young, -mat.poisson * s / mat.young, -mat.poisson * s / mat.young, 0.0, 0.0, 0.0];
+        let e_strain = [
+            s / mat.young,
+            -mat.poisson * s / mat.young,
+            -mat.poisson * s / mat.young,
+            0.0,
+            0.0,
+            0.0,
+        ];
         let (sigma, state) = mat.update(&e_strain, &PlasticState::default());
         assert!((sigma[0] - s).abs() < 1.0);
         assert_eq!(state, PlasticState::default());

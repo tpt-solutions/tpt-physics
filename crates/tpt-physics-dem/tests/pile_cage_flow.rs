@@ -43,8 +43,8 @@ fn aggregate_flows_down_through_pile_cage_without_penetration() {
         let y = 1.5 + rng.next_f64() * 5.0;
         particles.push(Particle::new([x, y, z], [0.0; 3], r, density));
     }
-    let initial_mean_y: f64 = particles.iter().map(|p| p.position[1]).sum::<f64>()
-        / particles.len() as f64;
+    let initial_mean_y: f64 =
+        particles.iter().map(|p| p.position[1]).sum::<f64>() / particles.len() as f64;
 
     // Stable integration for r = 0.25 particles: the default steel modulus with
     // dt = 2e-4 is above the Hertz contact stability limit, so soften E* to a
@@ -71,8 +71,8 @@ fn aggregate_flows_down_through_pile_cage_without_penetration() {
     }
 
     // 2. Net downward transport past the cage.
-    let driven_mean_y: f64 = world.particles.iter().map(|p| p.position[1]).sum::<f64>()
-        / world.particles.len() as f64;
+    let driven_mean_y: f64 =
+        world.particles.iter().map(|p| p.position[1]).sum::<f64>() / world.particles.len() as f64;
     assert!(
         driven_mean_y < initial_mean_y - 1.0,
         "no downward transport: {initial_mean_y} -> {driven_mean_y}"
@@ -113,7 +113,10 @@ impl Lcg {
         Lcg(seed | 1)
     }
     fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0
     }
     fn next_f64(&mut self) -> f64 {

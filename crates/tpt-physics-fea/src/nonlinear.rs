@@ -57,7 +57,10 @@ fn inv3(m: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
 }
 
 /// Deformation gradient `F = ∂x/∂X` for a linear tetrahedral element.
-pub fn deformation_gradient(ref_coords: &[[f64; 3]; 4], cur_coords: &[[f64; 3]; 4]) -> [[f64; 3]; 3] {
+pub fn deformation_gradient(
+    ref_coords: &[[f64; 3]; 4],
+    cur_coords: &[[f64; 3]; 4],
+) -> [[f64; 3]; 3] {
     let mut jref = [[0.0; 3]; 3];
     let mut jcur = [[0.0; 3]; 3];
     for a in 0..4 {
@@ -141,11 +144,18 @@ fn second_pk_stress(e: &[f64; 6], lambda: f64, mu: f64) -> [f64; 6] {
 fn iso_tangent(lambda: f64, mu: f64) -> [f64; 36] {
     let mut c = [0.0; 36];
     let k = lambda + 2.0 * mu;
-    c[0] = k; c[7] = k; c[14] = k;
-    c[21] = mu; c[28] = mu; c[35] = mu;
-    c[1] = lambda; c[2] = lambda;
-    c[6] = lambda; c[8] = lambda;
-    c[12] = lambda; c[13] = lambda;
+    c[0] = k;
+    c[7] = k;
+    c[14] = k;
+    c[21] = mu;
+    c[28] = mu;
+    c[35] = mu;
+    c[1] = lambda;
+    c[2] = lambda;
+    c[6] = lambda;
+    c[8] = lambda;
+    c[12] = lambda;
+    c[13] = lambda;
     c
 }
 
@@ -164,11 +174,7 @@ pub fn tet4_internal_force(
     let e = green_lagrange(&f);
     let s = second_pk_stress(&e, lambda, mu);
     // Stress tensor (symmetric) from Voigt.
-    let sh = [
-        [s[0], s[3], s[5]],
-        [s[3], s[1], s[4]],
-        [s[5], s[4], s[2]],
-    ];
+    let sh = [[s[0], s[3], s[5]], [s[3], s[1], s[4]], [s[5], s[4], s[2]]];
     let mut force = [0.0; 12];
     for a in 0..4 {
         for i in 0..3 {
@@ -196,11 +202,7 @@ pub fn tet4_tangent(
     let e = green_lagrange(&f);
     let s = second_pk_stress(&e, lambda, mu);
     let c = iso_tangent(lambda, mu);
-    let sh = [
-        [s[0], s[3], s[5]],
-        [s[3], s[1], s[4]],
-        [s[5], s[4], s[2]],
-    ];
+    let sh = [[s[0], s[3], s[5]], [s[3], s[1], s[4]], [s[5], s[4], s[2]]];
 
     let b_node = |a: usize, strain: usize, comp: usize| -> f64 {
         // B mapping node `a` displacement component `comp` → strain `strain`.
@@ -260,7 +262,12 @@ mod tests {
 
     #[test]
     fn zero_deformation_zero_force() {
-        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let r = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
         let (la, mu) = lame(200e9, 0.3);
         let f = tet4_internal_force(&r, &r, la, mu);
         assert!(f.iter().all(|v| v.abs() < 1e-9));
@@ -269,8 +276,18 @@ mod tests {
     #[test]
     fn internal_force_is_self_equilibrated() {
         // Any (non-rigid) deformation yields a nodal force sum of zero.
-        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let c = [[0.1, 0.2, 0.0], [1.1, -0.1, 0.3], [-0.2, 0.9, 0.1], [0.05, 0.05, 1.1]];
+        let r = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
+        let c = [
+            [0.1, 0.2, 0.0],
+            [1.1, -0.1, 0.3],
+            [-0.2, 0.9, 0.1],
+            [0.05, 0.05, 1.1],
+        ];
         let (la, mu) = lame(200e9, 0.3);
         let f = tet4_internal_force(&r, &c, la, mu);
         let mut s = [0.0; 3];
@@ -285,14 +302,28 @@ mod tests {
     #[test]
     fn rigorous_rotation_gives_zero_force() {
         // A pure rotation has F orthonormal → E = 0 → S = 0 → f = 0.
-        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let r = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
         let ang = 0.3_f64;
         let rot = [
             [1.0, 0.0, 0.0],
             [0.0, ang.cos(), -ang.sin()],
             [0.0, ang.sin(), ang.cos()],
         ];
-        let c: Vec<[f64; 3]> = r.iter().map(|p| [rot[0][0]*p[0]+rot[0][1]*p[1]+rot[0][2]*p[2], rot[1][0]*p[0]+rot[1][1]*p[1]+rot[1][2]*p[2], rot[2][0]*p[0]+rot[2][1]*p[1]+rot[2][2]*p[2]]).collect();
+        let c: Vec<[f64; 3]> = r
+            .iter()
+            .map(|p| {
+                [
+                    rot[0][0] * p[0] + rot[0][1] * p[1] + rot[0][2] * p[2],
+                    rot[1][0] * p[0] + rot[1][1] * p[1] + rot[1][2] * p[2],
+                    rot[2][0] * p[0] + rot[2][1] * p[1] + rot[2][2] * p[2],
+                ]
+            })
+            .collect();
         let (la, mu) = lame(200e9, 0.3);
         let f = tet4_internal_force(&r, &c.try_into().unwrap(), la, mu);
         assert!(f.iter().all(|v| v.abs() < 1e-2), "rotation force {:?}", f);
@@ -302,7 +333,12 @@ mod tests {
     fn tangent_linearizes_internal_force() {
         // At the undeformed state the tangent equals the linear elastic
         // stiffness, so f(cur) ≈ K(cur-ref) for a small displacement.
-        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let r = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
         let (la, mu) = lame(200e9, 0.3);
         let k = tet4_tangent(&r, &r, la, mu);
         let mut u = [0.0; 12];
@@ -328,8 +364,18 @@ mod tests {
 
     #[test]
     fn tangent_is_symmetric() {
-        let r = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let c = [[0.1, 0.05, 0.0], [1.05, -0.02, 0.1], [-0.05, 0.95, 0.05], [0.02, 0.03, 1.05]];
+        let r = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
+        let c = [
+            [0.1, 0.05, 0.0],
+            [1.05, -0.02, 0.1],
+            [-0.05, 0.95, 0.05],
+            [0.02, 0.03, 1.05],
+        ];
         let (la, mu) = lame(200e9, 0.3);
         let k = tet4_tangent(&r, &c, la, mu);
         for i in 0..12 {

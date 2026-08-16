@@ -86,7 +86,12 @@ mod tests {
         // Pair 0: `j` lies at +x, so the force on `i` points -x with magnitude
         // = hertz(δ).
         let expected0 = hertz_normal_force(e_star, r_star, 0.4);
-        assert!((f[0][0] + expected0).abs() < 1e-6, "{} vs {}", f[0][0], -expected0);
+        assert!(
+            (f[0][0] + expected0).abs() < 1e-6,
+            "{} vs {}",
+            f[0][0],
+            -expected0
+        );
         // Pair 2: no contact.
         assert!(f[2].iter().all(|v| v.abs() < 1e-9));
         // Pair 3: separated, no force.

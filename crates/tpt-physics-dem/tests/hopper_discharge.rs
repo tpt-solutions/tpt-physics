@@ -76,8 +76,8 @@ fn run_hopper(do_half: f64) -> f64 {
 
     let mut world = World::with_obstacles(particles, 1e-4, obstacles);
     world.floor_y = -100.0; // discharge freely below the orifice
-    // Granular contact modulus + velocity clamp keep the wedged-orifice case
-    // (arch formation) stable instead of exploding.
+                            // Granular contact modulus + velocity clamp keep the wedged-orifice case
+                            // (arch formation) stable instead of exploding.
     world.e_star = 5e7;
     world.max_speed = 10.0;
 
@@ -103,7 +103,9 @@ fn run_hopper(do_half: f64) -> f64 {
     let rate = (discharged_end - discharged_at) as f64 / (window as f64 * world.dt);
     eprintln!(
         "hopper D={:.2}: discharge rate {:.1} particles/s ({} discharged in window)",
-        do_half, rate, discharged_end - discharged_at
+        do_half,
+        rate,
+        discharged_end - discharged_at
     );
     rate
 }
@@ -116,9 +118,15 @@ fn hopper_discharge_follows_beverloo_trend() {
     let medium = run_hopper(1.0);
     let large = run_hopper(2.0);
 
-    assert!(tiny < 5.0, "arching failed: tiny orifice discharged {tiny}/s");
+    assert!(
+        tiny < 5.0,
+        "arching failed: tiny orifice discharged {tiny}/s"
+    );
     assert!(medium > tiny, "medium must exceed tiny: {medium} vs {tiny}");
-    assert!(large > medium, "large must exceed medium: {large} vs {medium}");
+    assert!(
+        large > medium,
+        "large must exceed medium: {large} vs {medium}"
+    );
 }
 
 struct Lcg(u64);
@@ -127,7 +135,10 @@ impl Lcg {
         Lcg(seed | 1)
     }
     fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0
     }
     fn next_f64(&mut self) -> f64 {

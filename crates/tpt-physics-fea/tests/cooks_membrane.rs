@@ -135,12 +135,7 @@ fn cooks_membrane(sigma_y0: f64, hard: f64) -> f64 {
     let mut elems = Vec::new();
     for i in 0..N {
         for j in 0..N {
-            elems.push([
-                nid(i, j),
-                nid(i + 1, j),
-                nid(i + 1, j + 1),
-                nid(i, j + 1),
-            ]);
+            elems.push([nid(i, j), nid(i + 1, j), nid(i + 1, j + 1), nid(i, j + 1)]);
         }
     }
 
