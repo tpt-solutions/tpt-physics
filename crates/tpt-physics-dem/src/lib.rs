@@ -12,6 +12,9 @@
 
 pub mod broadphase;
 pub mod contact;
+pub mod obstacle;
 pub mod particle;
 pub mod simd;
 pub mod world;
+
+pub use obstacle::Obstacle;

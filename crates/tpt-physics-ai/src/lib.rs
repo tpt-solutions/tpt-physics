@@ -227,6 +227,101 @@ impl DifferentiablePlant for HarmonicOscillator {
     }
 }
 
+/// A driven pendulum — a second, independent differentiable plant proving the
+/// [`GymEnv`]/[`DifferentiablePlant`] wrapper is not hard-coded to the harmonic
+/// oscillator.
+///
+/// State `s = [θ, ω]` (angle, angular velocity), action `a = [τ]` (torque).
+/// Continuous dynamics `θ̇ = ω`, `ω̇ = −(g/L)·sin θ − (b/m)·ω + τ/m`,
+/// discretised with semi-implicit (symplectic) Euler (`dt`).
+pub struct Pendulum {
+    /// Gravitational acceleration `g`.
+    pub g: f64,
+    /// Pendulum length `L`.
+    pub l: f64,
+    /// Point mass `m`.
+    pub m: f64,
+    /// Damping coefficient `b`.
+    pub b: f64,
+    /// Time step.
+    pub dt: f64,
+}
+
+impl Pendulum {
+    /// A unit pendulum (`g = L = m = 1`, light damping) with `dt = 0.01`.
+    pub fn new() -> Self {
+        Pendulum {
+            g: 9.81,
+            l: 1.0,
+            m: 1.0,
+            b: 0.1,
+            dt: 0.01,
+        }
+    }
+}
+
+impl Default for Pendulum {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DifferentiablePlant for Pendulum {
+    const S: usize = 2;
+    const A: usize = 1;
+
+    fn step_prim(&self, s: &[f64], a: &[f64]) -> Vec<f64> {
+        let (theta, omega) = (s[0], s[1]);
+        let ang_acc = -(self.g / self.l) * theta.sin() - (self.b / self.m) * omega + a[0] / self.m;
+        let omega_new = omega + self.dt * ang_acc;
+        let theta_new = theta + self.dt * omega_new;
+        vec![theta_new, omega_new]
+    }
+
+    fn dynamics_dual<const D: usize>(
+        &self,
+        s: &[Dual<f64, D>],
+        a: &[Dual<f64, D>],
+    ) -> Vec<Dual<f64, D>> {
+        let theta = s[0];
+        let omega = s[1];
+        let g = Dual::constant(self.g);
+        let l = Dual::constant(self.l);
+        let b = Dual::constant(self.b);
+        let m = Dual::constant(self.m);
+        let dt = Dual::constant(self.dt);
+        let grav = (g.clone() / l.clone()) * theta.clone().sin();
+        let damp = (b.clone() / m.clone()) * omega.clone();
+        let ang_acc = Dual::constant(0.0) - grav - damp + a[0].clone() / m.clone();
+        let omega_new = omega + dt.clone() * ang_acc;
+        let theta_new = theta + dt * omega_new.clone();
+        vec![theta_new, omega_new]
+    }
+
+    fn jacobians(&self, state: &[f64], action: &[f64]) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+        // Inputs: theta (0), omega (1), tau (2) → D = 3.
+        let s = [state[0], state[1]];
+        let a = [action[0]];
+        let mut jac = [[0.0_f64; 3]; 2];
+        for k in 0..3 {
+            let mut sd: Vec<Dual<f64, 3>> = s.iter().map(|&val| Dual::constant(val)).collect();
+            let mut ad: Vec<Dual<f64, 3>> = a.iter().map(|&val| Dual::constant(val)).collect();
+            if k < 2 {
+                sd[k] = Dual::variable(s[k], k);
+            } else {
+                ad[0] = Dual::variable(a[0], 2);
+            }
+            let out = self.dynamics_dual(&sd, &ad);
+            for i in 0..2 {
+                jac[i][k] = out[i].du(k);
+            }
+        }
+        let ds = (0..2).map(|i| (0..2).map(|j| jac[i][j]).collect()).collect();
+        let da = (0..2).map(|i| vec![jac[i][2]]).collect();
+        (ds, da)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,5 +374,47 @@ mod tests {
         assert_eq!(steps, 10);
         // State should have decayed toward 0 under damping.
         assert!(env.state().iter().map(|v| v * v).sum::<f64>() < 1.0);
+    }
+
+    #[test]
+    fn pendulum_step_is_physical() {
+        let plant = Pendulum::new();
+        // Released from a small angle with no torque: should accelerate back
+        // toward the bottom (θ decreases in magnitude, ω becomes negative).
+        let s = plant.step_prim(&[0.5, 0.0], &[0.0]);
+        assert!(s[0] < 0.5, "theta = {}", s[0]);
+        assert!(s[1] < 0.0, "omega = {}", s[1]);
+    }
+
+    #[test]
+    fn pendulum_jacobians_match_analytic() {
+        let plant = Pendulum::new();
+        let s = [0.3, 0.2];
+        let a = [0.05];
+        let (ds, da) = plant.jacobians(&s, &a);
+        let dt = plant.dt;
+        // Semi-implicit Euler:
+        // ω' = ω + dt·(−(g/L) sinθ − (b/m)ω + τ/m),  θ' = θ + dt·ω'.
+        let dwdth = -(plant.g / plant.l) * s[0].cos(); // dω'/dθ
+        let dwdw = -(plant.b / plant.m); // dω'/dω
+        assert!((ds[0][0] - (1.0 + dt * dt * dwdth)).abs() < 1e-9);
+        assert!((ds[0][1] - (dt * (1.0 + dt * dwdw))).abs() < 1e-9);
+        assert!((da[0][0] - (dt * dt / plant.m)).abs() < 1e-9);
+        assert!((ds[1][0] - (dt * dwdth)).abs() < 1e-9);
+        assert!((ds[1][1] - (1.0 + dt * dwdw)).abs() < 1e-9);
+        assert!((da[1][0] - (dt / plant.m)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pendulum_works_in_gym_wrapper() {
+        let plant = Pendulum::new();
+        let mut env = GymWrapper::new(plant, vec![0.5, 0.0], 20);
+        let obs = env.reset();
+        assert_eq!(obs.len(), 2);
+        let action = DVector::from_fn(1, |_| 0.0);
+        for _ in 0..20 {
+            let step = env.step(&action);
+            assert!(step.observation.iter().all(|v| v.is_finite()));
+        }
     }
 }

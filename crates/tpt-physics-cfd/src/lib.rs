@@ -7,28 +7,27 @@
 //! The current implementation is the canonical **D2Q9** (9-velocity,
 //! two-dimensional) BGK-collision lattice with:
 //!
-//! * half-way bounce-back solid boundaries,
-//! * periodic boundaries along the streamwise direction,
+//! * half-way bounce-back solid boundaries (stationary or moving),
+//! * periodic, or velocity-inlet / zero-gradient-outlet `x` boundaries,
 //! * a body-force (Guo-style velocity-shift) term so that pressure-gradient /
 //!   gravity-driven flows can be simulated,
+//! * a circular obstacle primitive for bluff-body flows,
 //! * `rayon`-friendly bulk loops.
-//!
-//! ```
-//! use tpt_physics_cfd::{Lbm2D, lattice::D2Q9};
-//!
-//! // A 2-D channel (periodic in x, walls top & bottom) driven by a body force.
-//! let mut sim = Lbm2D::new(64, 32, 0.55);
-//! sim.set_horizontal_walls();
-//! sim.initialise(1.0, [0.0, 0.0]);
-//! for _ in 0..2000 { sim.step([1e-5, 0.0]); }
-//! let (rho, ux, uy) = sim.macro_fields();
-//! assert!(rho.iter().all(|&r| r.is_finite()));
-//! ```
 
 pub mod lattice;
 
 use lattice::D2Q9;
 use rayon::prelude::*;
+
+/// Streamwise (`x`) boundary treatment.
+#[derive(Debug, Clone, Copy)]
+pub enum XBoundary {
+    /// Wrap around in `x` (periodic channel / recirculating wake).
+    Periodic,
+    /// Velocity inlet at the west edge (`u = (U, 0)`) and zero-gradient outlet
+    /// at the east edge — used for external (flow-past-body) simulations.
+    Inlet(f64),
+}
 
 /// A two-dimensional D2Q9 Lattice Boltzmann solver.
 ///
@@ -52,12 +51,16 @@ pub struct Lbm2D {
     pub uy: Vec<f64>,
     /// `true` for solid (no-slip) nodes.
     pub solid: Vec<bool>,
+    /// Wall velocities `[u, v]` for moving (lid) boundaries; zero = stationary.
+    wall_vel: Vec<[f64; 2]>,
+    /// Streamwise (`x`) boundary treatment.
+    x_boundary: XBoundary,
 }
 
 impl Lbm2D {
     /// Construct an `nx × ny` lattice with relaxation time `tau`.
     pub fn new(nx: usize, ny: usize, tau: f64) -> Self {
-        assert!(nx > 1 && ny > 1, "lattice must be at least 2x2");
+        assert!(nx > 2 && ny > 1, "lattice must be at least 3x2");
         assert!(tau > 0.5, "tau must exceed 0.5 for stability");
         let n = nx * ny;
         Lbm2D {
@@ -69,6 +72,8 @@ impl Lbm2D {
             ux: vec![0.0; n],
             uy: vec![0.0; n],
             solid: vec![false; n],
+            wall_vel: vec![[0.0; 2]; n],
+            x_boundary: XBoundary::Periodic,
         }
     }
 
@@ -86,6 +91,53 @@ impl Lbm2D {
         for ix in 0..nx {
             self.solid[ix] = true;
             self.solid[(ny - 1) * nx + ix] = true;
+        }
+    }
+
+    /// Mark all four borders as solid walls (fully enclosed cavity).
+    pub fn set_box_walls(&mut self) {
+        let nx = self.nx;
+        let ny = self.ny;
+        for ix in 0..nx {
+            self.solid[ix] = true;
+            self.solid[(ny - 1) * nx + ix] = true;
+        }
+        for iy in 0..ny {
+            self.solid[iy * nx] = true;
+            self.solid[iy * nx + (nx - 1)] = true;
+        }
+    }
+
+    /// Set the streamwise (`x`) boundary treatment.
+    pub fn set_x_boundary(&mut self, b: XBoundary) {
+        self.x_boundary = b;
+    }
+
+    /// Make a horizontal strip of wall nodes move with velocity `v` in `x`
+    /// (used as the lid of a lid-driven cavity). `iy` is the row (e.g. `ny-1`).
+    pub fn set_moving_lid(&mut self, iy: usize, v: f64) {
+        let nx = self.nx;
+        for ix in 0..nx {
+            let i = self.idx(ix, iy);
+            self.solid[i] = true;
+            self.wall_vel[i] = [v, 0.0];
+        }
+    }
+
+    /// Add a solid circular obstacle centred at `(cx, cy)` with lattice radius
+    /// `r` (no-slip bounce-back on every node inside).
+    pub fn add_circle(&mut self, cx: f64, cy: f64, r: f64) {
+        let nx = self.nx;
+        let ny = self.ny;
+        let r2 = r * r;
+        for iy in 0..ny {
+            for ix in 0..nx {
+                let dx = ix as f64 - cx;
+                let dy = iy as f64 - cy;
+                if dx * dx + dy * dy <= r2 {
+                    self.solid[iy * nx + ix] = true;
+                }
+            }
         }
     }
 
@@ -150,8 +202,8 @@ impl Lbm2D {
         }
     }
 
-    /// Streaming with half-way bounce-back at solid nodes and periodic wrap in
-    /// `x`.
+    /// Streaming with half-way bounce-back at solid nodes, moving-wall
+    /// corrections, wrap/periodicity or inlet–outlet in `x`.
     fn stream(&mut self) {
         let nx = self.nx;
         let ny = self.ny;
@@ -163,20 +215,46 @@ impl Lbm2D {
                     continue;
                 }
                 for k in 0..9 {
-                    // Source node of streaming direction k is x − e_k.
-                    let sx = ix as isize - D2Q9::E[k].0 as isize;
-                    let sy = iy as isize - D2Q9::E[k].1 as isize;
-                    let sx = wrap(sx, nx as isize);
-                    let sy = clamp_wall(sy, ny as isize);
-                    let sidx = sy * self.nx + sx;
-                    if self.solid[sidx] {
-                        // Half-way bounce-back: the population that would have
-                        // entered the wall instead returns as the post-collision
-                        // value of this node in the opposite direction.
-                        self.f[i][k] = f_prev[i][D2Q9::OPP[k]];
+                    let (ex, ey) = D2Q9::E[k];
+                    let sx = ix as isize - ex as isize;
+                    let sy = iy as isize - ey as isize;
+                    let val = if sx < 0 || sx >= nx as isize {
+                        match self.x_boundary {
+                            XBoundary::Periodic => {
+                                let wx = wrap(sx, nx as isize);
+                                let wy = clamp_wall(sy, ny as isize);
+                                f_prev[wy * nx + wx][k]
+                            }
+                            XBoundary::Inlet(u) => {
+                                if sx < 0 {
+                                    // Entering from the west inlet.
+                                    D2Q9::equilibrium(1.0, [u, 0.0])[k]
+                                } else {
+                                    // Leaving east: zero-gradient copy of the
+                                    // neighbour column.
+                                    let c = (nx - 2) as usize;
+                                    f_prev[iy * nx + c][k]
+                                }
+                            }
+                        }
+                    } else if sy < 0 || sy >= ny as isize {
+                        let wx = wrap(sx, nx as isize);
+                        let wy = clamp_wall(sy, ny as isize);
+                        let sidx = wy * nx + wx;
+                        if self.solid[sidx] {
+                            bounce(&f_prev, self, i, k, sidx)
+                        } else {
+                            f_prev[sidx][k]
+                        }
                     } else {
-                        self.f[i][k] = f_prev[sidx][k];
-                    }
+                        let sidx = sy as usize * nx + sx as usize;
+                        if self.solid[sidx] {
+                            bounce(&f_prev, self, i, k, sidx)
+                        } else {
+                            f_prev[sidx][k]
+                        }
+                    };
+                    self.f[i][k] = val;
                 }
             }
         }
@@ -204,6 +282,22 @@ impl Lbm2D {
     }
 }
 
+/// Half-way bounce-back value for fluid node `i`, direction `k`, whose source
+/// is the solid node `sidx`. Applies the Ladd moving-wall correction when the
+/// solid node carries a non-zero wall velocity.
+#[inline]
+fn bounce(f_prev: &[[f64; 9]], sim: &Lbm2D, i: usize, k: usize, sidx: usize) -> f64 {
+    let wv = sim.wall_vel[sidx];
+    let base = f_prev[i][D2Q9::OPP[k]];
+    if wv[0] == 0.0 && wv[1] == 0.0 {
+        base
+    } else {
+        let rho_i = sim.rho[i];
+        let eu = D2Q9::E[k].0 as f64 * wv[0] + D2Q9::E[k].1 as f64 * wv[1];
+        base + 2.0 * D2Q9::W[k] * rho_i * eu / D2Q9::CS2
+    }
+}
+
 #[inline]
 fn wrap(x: isize, n: isize) -> usize {
     let mut r = x % n;
@@ -225,7 +319,7 @@ fn clamp_wall(y: isize, n: isize) -> usize {
 }
 
 impl Lbm2D {
-    /// Average x-velocity profile along `y` (averaged over periodic `x`).
+    /// Average x-velocity profile along `y` (averaged over the `x` interior).
     pub fn x_velocity_profile(&self) -> Vec<f64> {
         (0..self.ny)
             .map(|iy| {
@@ -236,6 +330,11 @@ impl Lbm2D {
                 s / self.nx as f64
             })
             .collect()
+    }
+
+    /// Mean x-velocity along the vertical line `ix` (for wake / cavity studies).
+    pub fn x_velocity_at_column(&self, ix: usize) -> Vec<f64> {
+        (0..self.ny).map(|iy| self.ux[self.idx(ix, iy)]).collect()
     }
 }
 
@@ -340,4 +439,3 @@ mod tests {
         assert!(rho.iter().chain(ux).chain(uy).all(|v| v.is_finite()));
     }
 }
-

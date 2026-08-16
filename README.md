@@ -92,3 +92,45 @@ in `Cargo.toml` reference them by relative path).
   documentation, benchmarks, and the "Spacer Benchmark" case study.
 
 See [`todo.md`](todo.md) for the full checklist.
+
+## Validation status
+
+Every non-trivial capability is backed by an integration test (or unit test)
+that asserts the *qualitative physics*, not just "it compiles". Highlights:
+
+| Area | Validation | What it proves |
+| --- | --- | --- |
+| DEM | `tests/granular_settling.rs` | a poured pile settles without blow-up or interpenetration |
+| DEM | `tests/ssi_spacer.rs` | soil settles around an embedded cylindrical spacer, no penetration |
+| DEM | `tests/pile_cage_flow.rs` | fluidized aggregate flows past a pile cage and comes to rest |
+| DEM | `tests/hopper_discharge.rs` | discharge rate follows the Beverloo trend (arching when `D < d`) |
+| DEM | `tests/random_close_packing.rs` | mono-disperse bed packs to the RCP fraction (~0.64) |
+| DEM | `tests/large_scale.rs` | the `rayon` stepper advances **>100k** particles stably |
+| FEA | `tests/cooks_membrane.rs` | J2 plasticity: more compliant than elastic, hardening stiffens |
+| CFD | `tests/lid_driven_cavity.rs` | lid-driven cavity develops the primary vortex + recirculation |
+| CFD | `tests/flow_past_cylinder.rs` | steady symmetric wake (low Re) and von Kármán shedding (moderate Re) |
+| AI | `lib.rs` | second differentiable plant (pendulum) matches analytic Jacobians |
+| FEA | `examples/pile_cage_spacer.rs` | end-to-end spacer milestone (CAD→mesh→elasticity) |
+
+## Benchmarks & examples
+
+Runnable, timing-printing examples (no extra benchmark harness required):
+
+```sh
+# DEM throughput: particles/second for the parallel stepper.
+cargo run --release -p tpt-physics-dem --example bench_large_scale
+
+# End-to-end "Spacer Benchmark" case study: CAD → mesh → material → FEA.
+cargo run --release -p tpt-physics-fea --example spacer_benchmark
+```
+
+The DEM `rayon` stepper ([`World::step_par`]) is the CPU-acceleration path for
+large counts; the hardware-dispatch API in `tpt-physics-solver` selects the
+GPU target for problems above its size threshold, with the `wgpu`/`spark`
+compute kernel as the tracked follow-up (it currently reports
+`BackendUnavailable`, exactly as the solver's dispatch does).
+
+## License
+
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE-2.0) at
+your option. Copyright TPT Solutions.

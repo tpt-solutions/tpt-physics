@@ -79,7 +79,7 @@ impl PlasticMaterial {
     }
 
     /// Isotropic elastic tangent `C` (6×6 Voigt, engineering shear).
-    fn elastic_matrix(&self) -> [[f64; 6]; 6] {
+    pub fn elastic_matrix(&self) -> [[f64; 6]; 6] {
         let (lam, mu) = self.lame();
         let mut c = [[0.0; 6]; 6];
         // Diagonal normal block.
