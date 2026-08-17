@@ -16,6 +16,14 @@ categories = ["mathematics", "science", "algorithms", "simulation"]
 tpt-fem-sparse = { workspace = true }
 rayon = { workspace = true }
 tracing = { workspace = true }
+wgpu = { version = "0.20", optional = true }
+pollster = { version = "0.3", optional = true }
+
+[features]
+# Enables the real `wgpu` GPU compute path behind `HardwareDispatch`. Without
+# this feature the GPU target still dispatches to the CPU path and reports
+# `BackendUnavailable` when no adapter is present.
+gpu = ["dep:wgpu", "dep:pollster"]
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -12,14 +12,17 @@ use tpt_physics_core::Material;
 use crate::nonlinear::reference_basis;
 
 /// Element thermal-load vector (length 12) for a single tetrahedral element.
+///
+/// Returns `None` if the element is degenerate (zero/inverted reference
+/// Jacobian); callers should then contribute zero to the global load.
 pub fn tet4_thermal_load(
     ref_coords: &[[f64; 3]; 4],
     alpha: f64,
     dt: f64,
     lambda: f64,
     mu: f64,
-) -> [f64; 12] {
-    let (gx, v0) = reference_basis(ref_coords);
+) -> Option<[f64; 12]> {
+    let (gx, v0) = reference_basis(ref_coords)?;
     let c0 = (3.0 * lambda + 2.0 * mu) * alpha * dt;
     let mut f = [0.0; 12];
     for a in 0..4 {
@@ -27,7 +30,7 @@ pub fn tet4_thermal_load(
             f[3 * a + i] = v0 * c0 * gx[a][i];
         }
     }
-    f
+    Some(f)
 }
 
 /// Assemble the global thermal-strain load vector for a mesh.
@@ -63,7 +66,9 @@ pub fn thermal_load_vector(
             dt_sum += temps[nid] - t_ref;
         }
         let dt_avg = dt_sum / 4.0;
-        let fe = tet4_thermal_load(&ref_coords, alpha, dt_avg, lambda, mu);
+        let Some(fe) = tet4_thermal_load(&ref_coords, alpha, dt_avg, lambda, mu) else {
+            continue;
+        };
         for (k, &nid) in e.nodes.iter().enumerate() {
             for i in 0..3 {
                 if 3 * k + i < fe.len() {
@@ -93,7 +98,7 @@ mod tests {
             [0.0, 0.0, 1.0],
         ];
         let (la, mu) = (steel().lame_lambda(), steel().shear_modulus());
-        let f = tet4_thermal_load(&r, 12e-6, 0.0, la, mu);
+        let f = tet4_thermal_load(&r, 12e-6, 0.0, la, mu).unwrap();
         assert!(f.iter().all(|v| *v == 0.0));
     }
 
@@ -106,7 +111,7 @@ mod tests {
             [0.0, 0.0, 1.0],
         ];
         let (la, mu) = (steel().lame_lambda(), steel().shear_modulus());
-        let f = tet4_thermal_load(&r, 12e-6, 100.0, la, mu);
+        let f = tet4_thermal_load(&r, 12e-6, 100.0, la, mu).unwrap();
         let mut s = [0.0; 3];
         for a in 0..4 {
             for i in 0..3 {

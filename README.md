@@ -140,7 +140,7 @@ full benchmark suite and may need more work before production use.
 | 3-D beam (Euler–Bernoulli) element | ⚠️ Experimental | cantilever verified; no shear/flexible-beam benchmark |
 | Mindlin–Reissner shell4 | ⚠️ Experimental | rigid-body + simply-supported plate; no Scordelis–Lo |
 | Preconditioned GMRES | ⚠️ Experimental | Jacobi preconditioner; no AMG yet |
-| GPU hardware-dispatch backend | ⚠️ Experimental | selects target; `wgpu`/`spark` kernel returns `BackendUnavailable` |
+| GPU hardware-dispatch backend | ⚠️ Experimental | real `wgpu` WGSL `matvec` kernel behind `--features gpu`; falls back to `BackendUnavailable` when no adapter |
 | Lid-driven cavity | ⚠️ Experimental | `#[ignore]`d — primary-vortex convergence issue |
 
 ## Roadmap
@@ -199,9 +199,10 @@ cargo run --release --example gradient_opt -p tpt-physics-ai    # gradient-based
 
 The DEM `rayon` stepper ([`World::step_par`]) is the CPU-acceleration path for
 large counts; the hardware-dispatch API in `tpt-physics-solver` selects the GPU
-target for problems above its size threshold, with the `wgpu`/`spark` compute
-kernel as the tracked follow-up (it currently reports `BackendUnavailable`,
-exactly as the solver's dispatch does).
+target for problems above its size threshold. With `--features gpu` a real WGSL
+`matvec` compute kernel (`tpt-physics-solver::gpu`) runs on the first available
+adapter; without the feature, or with no GPU present, it returns
+`BackendUnavailable` and callers fall back to the CPU path.
 
 ## Troubleshooting
 

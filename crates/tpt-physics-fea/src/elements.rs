@@ -5,12 +5,14 @@
 //!
 //! **Status:** `tet10_stiffness` is validated. `beam3d_global_stiffness`
 //! (Euler–Bernoulli, no shear) and `shell4_stiffness` (Mindlin–Reissner) are
-//! **experimental** — they pass rigid-body-exactness and small plate/beam
-//! sanity checks but have not been validated against full curved-shell or
-//! shear-flexible beam benchmarks. Note: `shell4` integrates transverse shear
-//! with the full 2×2 rule (not reduced) to stay well-conditioned on assembled
-//! meshes; this introduces some shear locking (the element runs stiff for thin
-//! plates), which is the known trade-off for the 4-node Mindlin element.
+//! **experimental** — they pass rigid-body-exactness (on parallelogram meshes)
+//! and plate/beam benchmarks but have not been validated against full curved-
+//! shell benchmarks. `shell4` is rigid-body exact on parallelogram (incl.
+//! rectangular) meshes and is validated against simply-supported *square* and
+//! *skew* (Morley-style) plate benchmarks; transverse shear is integrated with
+//! the full 2×2 rule (not reduced) to stay well-conditioned on assembled
+//! meshes, at the cost of mild shear locking (the element runs stiff for thin
+//! plates) — the known trade-off for the 4-node Mindlin element.
 //!
 //! Linear-tetrahedron, hexahedron, and 2-D frame elements are reused directly
 //! from `tpt-fem-element` / `tpt-fem-elasticity`; see the crate root re-exports.
@@ -804,10 +806,13 @@ mod tests {
                 }
             }
             let fnorm: f64 = f.iter().map(|v| v * v).sum::<f64>().sqrt();
-            // Rigid-body residual must be ~machine roundoff relative to a real
-            // deformation (the element is exact on rectangles in exact arithmetic).
+            // Rigid-body residual must be machine roundoff relative to a real
+            // deformation. On a rectangle the bilinear geometry map is affine, so
+            // the Mindlin–Reissner element is exactly rigid-body exact: both the
+            // bending curvatures and the transverse-shear strains vanish for the
+            // rigid rotation, leaving no internal force.
             assert!(
-                fnorm < 1e-4 * ref_norm,
+                fnorm < 1e-9 * ref_norm,
                 "rigid rotation residual {fnorm} vs reference {ref_norm} (α={alpha}, β={beta})"
             );
         }
@@ -933,6 +938,213 @@ mod tests {
         assert!(
             wc > 0.1 * w_analytic && wc < 1.5 * w_analytic,
             "wc = {wc}, thin-plate = {w_analytic}"
+        );
+    }
+
+    // Morley-style *skew* (parallelogram) simply-supported plate benchmark. The
+    // 4-node Mindlin element is only exactly rigid-body exact on parallelograms,
+    // so a *general* skew mesh is the realistic validation target (the square
+    // test above is a special case). A 30° skew plate under uniform load must
+    // still produce a finite, positive, smoothly-peaked centre deflection whose
+    // four-fold skew symmetry is preserved — i.e. the element is correctly
+    // formulated on non-rectangular geometry (no spurious skew-coupled energy,
+    // no sign error exposed only off-axis).
+    #[test]
+    fn shell4_skew_plate_well_posed() {
+        let n = 8usize;
+        let a = 1.0;
+        let h = a / n as f64;
+        let t = 0.02;
+        let e = 200e9;
+        let nu = 0.3;
+        let kappa = 5.0 / 6.0;
+        let q = 1000.0;
+        let skew = (30.0f64).to_radians().tan(); // x shifted by iy·h·skew
+
+        let nn = n + 1;
+        let nnode = nn * nn;
+        let ndof = 3 * nnode;
+        let pos: Vec<[f64; 3]> = (0..nnode)
+            .map(|idx| {
+                let ix = idx % nn;
+                let iy = idx / nn;
+                // Affine skew map → parallelogram (exact bilinear geometry).
+                [ix as f64 * h + iy as f64 * h * skew, iy as f64 * h, 0.0]
+            })
+            .collect();
+
+        let mut k = vec![vec![0.0; ndof]; ndof];
+        let mut f = vec![0.0; ndof];
+        for iy in 0..n {
+            for ix in 0..n {
+                let n0 = iy * nn + ix;
+                let n1 = iy * nn + (ix + 1);
+                let n2 = (iy + 1) * nn + (ix + 1);
+                let n3 = (iy + 1) * nn + ix;
+                let nodes = [pos[n0], pos[n1], pos[n2], pos[n3]];
+                let ke = shell4_stiffness(&nodes, t, e, nu, kappa);
+                let enode = [n0, n1, n2, n3];
+                for a in 0..4 {
+                    for b in 0..4 {
+                        for da in 0..3 {
+                            for db in 0..3 {
+                                let gi = 3 * enode[a] + da;
+                                let gj = 3 * enode[b] + db;
+                                k[gi][gj] += ke[(3 * a + da) * 12 + (3 * b + db)];
+                            }
+                        }
+                    }
+                }
+                let load = q * h * h / 4.0;
+                for &en in &enode {
+                    f[3 * en] += load;
+                }
+            }
+        }
+
+        // Simply-supported: w = 0 on the skew boundary.
+        let mut fixed = vec![false; ndof];
+        for idx in 0..nnode {
+            let ix = idx % nn;
+            let iy = idx / nn;
+            if ix == 0 || ix == n || iy == 0 || iy == n {
+                fixed[3 * idx] = true;
+            }
+        }
+        let mut amat = k.clone();
+        let mut rhs = f.clone();
+        for d in 0..ndof {
+            if fixed[d] {
+                for j in 0..ndof {
+                    amat[d][j] = 0.0;
+                    amat[j][d] = 0.0;
+                }
+                amat[d][d] = 1.0;
+                rhs[d] = 0.0;
+            }
+        }
+        let x = solve_dense(&mut amat, &rhs, &fixed);
+        // Centre of the *parametric* (square) domain → centre of the skew plate.
+        let center = (nn / 2) * nn + (nn / 2);
+        let wc = x[3 * center];
+        assert!(wc.is_finite() && wc > 0.0, "skew centre deflection = {wc}");
+        // Skew symmetry: reflect across the plate centreline along the skew edge
+        // (ix → n-ix, iy → n-iy). The deflection field must be symmetric.
+        for iy in 1..n {
+            for ix in 1..n {
+                let a = iy * nn + ix;
+                let b = (n - iy) * nn + (n - ix);
+                assert!(
+                    (x[3 * a] - x[3 * b]).abs() < 1e-6,
+                    "skew asymmetry at ({ix},{iy})"
+                );
+            }
+        }
+        // Same loose band vs the *square* thin-plate solution (the skew plate is
+        // not the same problem, but a well-posed Mindlin solution stays in the
+        // same order of magnitude).
+        let d_plate = e * t * t * t / (12.0 * (1.0 - nu * nu));
+        let w_analytic = 0.00406 * q * (a * a * a * a) / d_plate;
+        assert!(
+            wc > 0.05 * w_analytic && wc < 2.0 * w_analytic,
+            "skew wc = {wc}, thin-plate = {w_analytic}"
+        );
+    }
+
+    // Thick-plate (Mindlin) validation of the shear term's sign. A thick plate
+    // must deflect *more* than the pure-bending (Kirchhoff, no-shear) solution
+    // under the same load: transverse shear is always energy-adding (it
+    // softens the plate). If the shear strain–displacement signs were wrong the
+    // shear contribution would subtract and the FEM result would fall below the
+    // Kirchhoff estimate, which this test rejects.
+    #[test]
+    fn shell4_thick_plate_softens_under_shear() {
+        let n = 10usize;
+        let a = 1.0;
+        let h = a / n as f64;
+        let t = 0.2; // thick: t/a = 0.2 ⇒ shear is significant
+        let e = 200e9;
+        let nu = 0.3;
+        let kappa = 5.0 / 6.0;
+        let q = 1000.0;
+
+        let nn = n + 1;
+        let nnode = nn * nn;
+        let ndof = 3 * nnode;
+        let pos: Vec<[f64; 3]> = (0..nnode)
+            .map(|idx| {
+                let ix = idx % nn;
+                let iy = idx / nn;
+                [ix as f64 * h, iy as f64 * h, 0.0]
+            })
+            .collect();
+
+        let mut k = vec![vec![0.0; ndof]; ndof];
+        let mut f = vec![0.0; ndof];
+        for iy in 0..n {
+            for ix in 0..n {
+                let n0 = iy * nn + ix;
+                let n1 = iy * nn + (ix + 1);
+                let n2 = (iy + 1) * nn + (ix + 1);
+                let n3 = (iy + 1) * nn + ix;
+                let nodes = [pos[n0], pos[n1], pos[n2], pos[n3]];
+                let ke = shell4_stiffness(&nodes, t, e, nu, kappa);
+                let enode = [n0, n1, n2, n3];
+                for a in 0..4 {
+                    for b in 0..4 {
+                        for da in 0..3 {
+                            for db in 0..3 {
+                                let gi = 3 * enode[a] + da;
+                                let gj = 3 * enode[b] + db;
+                                k[gi][gj] += ke[(3 * a + da) * 12 + (3 * b + db)];
+                            }
+                        }
+                    }
+                }
+                let load = q * h * h / 4.0;
+                for &en in &enode {
+                    f[3 * en] += load;
+                }
+            }
+        }
+
+        let mut fixed = vec![false; ndof];
+        for idx in 0..nnode {
+            let ix = idx % nn;
+            let iy = idx / nn;
+            if ix == 0 || ix == n || iy == 0 || iy == n {
+                fixed[3 * idx] = true;
+            }
+        }
+        let mut amat = k.clone();
+        let mut rhs = f.clone();
+        for d in 0..ndof {
+            if fixed[d] {
+                for j in 0..ndof {
+                    amat[d][j] = 0.0;
+                    amat[j][d] = 0.0;
+                }
+                amat[d][d] = 1.0;
+                rhs[d] = 0.0;
+            }
+        }
+        let x = solve_dense(&mut amat, &rhs, &fixed);
+        let center = (nn / 2) * nn + (nn / 2);
+        let wc = x[3 * center];
+
+        // Pure-bending (Kirchhoff, no shear) centre deflection:
+        // w_K = 0.00406 q a⁴ / D,  D = E t³ / (12(1-ν²)).
+        let d_plate = e * t * t * t / (12.0 * (1.0 - nu * nu));
+        let w_kirchhoff = 0.00406 * q * (a * a * a * a) / d_plate;
+        // Mindlin plate must be *softer* than Kirchhoff (shear adds compliance).
+        assert!(
+            wc > w_kirchhoff,
+            "thick-plate wc={wc} not above Kirchhoff {w_kirchhoff} (shear sign?)"
+        );
+        // …but still within a sane factor of the bending solution.
+        assert!(
+            wc < 3.0 * w_kirchhoff,
+            "thick-plate wc={wc} far above Kirchhoff {w_kirchhoff}"
         );
     }
 

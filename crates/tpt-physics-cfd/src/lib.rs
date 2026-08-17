@@ -24,9 +24,18 @@ use rayon::prelude::*;
 pub enum XBoundary {
     /// Wrap around in `x` (periodic channel / recirculating wake).
     Periodic,
-    /// Velocity inlet at the west edge (`u = (U, 0)`) and zero-gradient outlet
-    /// at the east edge — used for external (flow-past-body) simulations.
+    /// Velocity inlet at the west edge (`u = (U, 0)`) and a zero-gradient /
+    /// convective outlet at the east edge — used for external
+    /// (flow-past-body) simulations.
     Inlet(f64),
+    /// Open (non-reflective) *downstream* boundary: the upstream (west) edge
+    /// wraps (periodic) while the downstream (east) edge adopts the
+    /// distributions of its neighbouring interior column (first-order upwind /
+    /// zero-gradient). Waves and mass therefore leave the domain at the east
+    /// instead of reflecting, while the west keeps a well-posed (periodic)
+    /// inflow. Use this for free-outflow / recirculating problems (plumes,
+    /// wakes) where a fully periodic domain is undesirable.
+    Open,
 }
 
 /// A two-dimensional D2Q9 Lattice Boltzmann solver.
@@ -237,18 +246,32 @@ impl Lbm2D {
                                     D2Q9::equilibrium(1.0, [u, 0.0])[k]
                                 } else {
                                     // East open (outflow) boundary: a non-
-                                    // reflective convective outlet. The macroscopic
-                                    // state is taken zero-gradient from the last
-                                    // interior column and reconstructed to
-                                    // equilibrium, so pressure/velocity waves leave
-                                    // the domain instead of reflecting back (this
-                                    // replaces the crude raw copy of the neighbour
-                                    // column).
+                                    // reflective convective (zero-gradient) outlet.
+                                    // The east column copies its interior neighbour
+                                    // so velocity/pressure waves leave the domain
+                                    // instead of reflecting. This applies the same
+                                    // characteristic-based zero-gradient treatment
+                                    // as `XBoundary::Open`.
                                     let c = (nx - 2) as usize;
                                     let ci = iy * nx + c;
-                                    let rho_out = self.rho[ci];
-                                    let u_out = [self.ux[ci], self.uy[ci]];
-                                    D2Q9::equilibrium(rho_out, u_out)[k]
+                                    f_prev[ci][k]
+                                }
+                            }
+                            XBoundary::Open => {
+                                // Downstream outflow: the west edge wraps
+                                // (periodic, well-posed inflow); the east edge
+                                // uses first-order upwind / zero-gradient,
+                                // copying its neighbouring interior column so
+                                // that mass and waves leave the domain instead
+                                // of reflecting.
+                                if sx < 0 {
+                                    let wx = wrap(sx, nx as isize);
+                                    let wy = clamp_wall(sy, ny as isize);
+                                    f_prev[wy * nx + wx][k]
+                                } else {
+                                    let c = (nx - 2) as usize;
+                                    let ci = iy * nx + c;
+                                    f_prev[ci][k]
                                 }
                             }
                         }
@@ -462,5 +485,41 @@ mod tests {
         }
         let (rho, ux, uy) = sim.macro_fields();
         assert!(rho.iter().chain(ux).chain(uy).all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn open_boundary_outflow_is_nonreflecting() {
+        // A rightward-moving pulse in a periodic-upstream / open-downstream
+        // domain must travel east and *leave* through the outflow instead of
+        // reflecting back. After enough steps the upstream (west) region should
+        // have relaxed toward rest while the fields stay finite and bounded.
+        let nx = 80;
+        let ny = 16;
+        let tau = 0.6;
+        let mut sim = Lbm2D::new(nx, ny, tau);
+        sim.set_x_boundary(XBoundary::Open);
+        // Rest everywhere...
+        sim.initialise(1.0, [0.0, 0.0]);
+        // ...with a localized rightward-moving blob in the left-centre.
+        for iy in 0..ny {
+            for ix in 30..50 {
+                let i = sim.idx(ix, iy);
+                sim.f[i] = D2Q9::equilibrium(1.0, [0.1, 0.0]);
+            }
+        }
+        for _ in 0..500 {
+            sim.step([0.0, 0.0]);
+        }
+        let (rho, ux, uy) = sim.macro_fields();
+        assert!(rho.iter().chain(ux).chain(uy).all(|v| v.is_finite()));
+        // The pulse has advected ~0.1·steps ≈ 50 cells to the right and exited
+        // through the east outflow, so the upstream (west) quarter is at rest.
+        let west_u: f64 = (0..nx / 4)
+            .map(|ix| (0..ny).map(|iy| ux[iy * nx + ix].abs()).sum::<f64>())
+            .sum();
+        assert!(
+            west_u < (nx / 4) as f64 * ny as f64 * 0.05,
+            "upstream not relaxed: {west_u}"
+        );
     }
 }

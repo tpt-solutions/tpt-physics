@@ -1,30 +1,52 @@
-# bootstrap.ps1 — verify the local sibling dependency workspaces exist.
+#!/usr/bin/env pwsh
+# Bootstrap the tpt-physics workspace: verify sibling crates are present and
+# that the Rust toolchain is available, then run a full check.
 #
-# tpt-physics consumes tpt-math and tpt-fem through Cargo path dependencies
-# (see the [workspace.dependencies] table in the root Cargo.toml). Those
-# crates are expected to live in sibling directories. This script checks they
-# are present and points you at the override env vars if they are not.
+# tpt-physics depends on sibling crates tpt-math and tpt-fem via path
+# dependencies (see the workspace [workspace.dependencies] table). Those repos
+# must be cloned next to this one:
+#
+#   C:\Programming\tpt-math
+#   C:\Programming\tpt-fem
+#   C:\Programming\tpt-physics   <-- this repo
+#
+# Usage:  .\scripts\bootstrap.ps1            # check + cargo check
+#         .\scripts\bootstrap.ps1 -Build     # also run cargo build
+#         .\scripts\bootstrap.ps1 -Test      # also run cargo test
+
+[CmdletBinding()]
+param(
+    [switch]$Build,
+    [switch]$Test
+)
+
 $ErrorActionPreference = "Stop"
 
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$siblings = @("tpt-math", "tpt-fem")
+$root = Resolve-Path (Join-Path $PSScriptRoot "..")
 
-$missing = $false
-foreach ($dep in @("tpt-math", "tpt-fem")) {
-    $path = Join-Path $Root $dep
-    if (-not (Test-Path $path)) {
-        Write-Error "sibling workspace '$path' not found. Clone it next to this repo, or set $($dep.ToUpper())_PATH to its location."
-        $missing = $true
+foreach ($s in $siblings) {
+    $p = Join-Path $root $s
+    if (-not (Test-Path $p)) {
+        Write-Error "Missing sibling crate '$s' at $p. Clone it next to this repo (see header)."
     } else {
-        Write-Host "OK: found $path"
+        Write-Host "[ok] found sibling: $s"
     }
 }
 
-if ($missing) {
-    exit 1
+if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+    Write-Error "cargo not found on PATH. Install Rust from https://rustup.rs (>= 1.84)."
 }
+Write-Host "[ok] cargo $(cargo --version)"
 
-Write-Host ""
-Write-Host "All sibling dependencies present. Next steps:"
-Write-Host "  just setup   # re-run this check"
-Write-Host "  just test    # build & run the test suite"
-Write-Host "  just bench   # run the criterion benchmarks"
+Write-Host "==> cargo check --workspace"
+cargo check --workspace
+if ($Build) {
+    Write-Host "==> cargo build --workspace"
+    cargo build --workspace
+}
+if ($Test) {
+    Write-Host "==> cargo test --workspace"
+    cargo test --workspace
+}
+Write-Host "Bootstrap complete."

@@ -33,20 +33,19 @@ fn mm(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
 
 /// 3×3 inverse.
 ///
-/// Panics with a descriptive message on a (near-)singular matrix — a
-/// degenerate or inverted element — rather than silently producing
-/// `inf`/`NaN`. `inv3` is only ever called on *reference* coordinates here,
-/// which must be valid for a real element.
-fn inv3(m: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+/// Returns `None` on a (near-)singular matrix — a degenerate or inverted
+/// element — instead of panicking or silently producing `inf`/`NaN` via
+/// division by zero. Callers must handle the `None` case (e.g. skip the
+/// element and report a degenerate-geometry error).
+fn inv3(m: &[[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
     let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-    assert!(
-        det.is_finite() && det.abs() >= 1e-12,
-        "inv3: degenerate/inverted element (det = {det:?})"
-    );
+    if !det.is_finite() || det.abs() < 1e-12 {
+        return None;
+    }
     let inv = 1.0 / det;
-    [
+    Some([
         [
             (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * inv,
             (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * inv,
@@ -62,14 +61,18 @@ fn inv3(m: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
             (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * inv,
             (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * inv,
         ],
-    ]
+    ])
 }
 
 /// Deformation gradient `F = ∂x/∂X` for a linear tetrahedral element.
+///
+/// Returns `None` if the reference element is degenerate (zero/inverted
+/// Jacobian), so callers can skip and report the bad element instead of
+/// propagating `NaN`.
 pub fn deformation_gradient(
     ref_coords: &[[f64; 3]; 4],
     cur_coords: &[[f64; 3]; 4],
-) -> [[f64; 3]; 3] {
+) -> Option<[[f64; 3]; 3]> {
     let mut jref = [[0.0; 3]; 3];
     let mut jcur = [[0.0; 3]; 3];
     for a in 0..4 {
@@ -80,12 +83,15 @@ pub fn deformation_gradient(
             }
         }
     }
-    mm(&jcur, &inv3(&jref))
+    inv3(&jref).map(|iref| mm(&jcur, &iref))
 }
 
 /// Reference configuration: material gradients `∂N_a/∂X` (length-3 per node)
 /// and the reference volume `V0`.
-pub(crate) fn reference_basis(ref_coords: &[[f64; 3]; 4]) -> ([[f64; 3]; 4], f64) {
+///
+/// Returns `None` if the reference element is degenerate (zero/inverted
+/// Jacobian) — the same guard as [`deformation_gradient`].
+pub(crate) fn reference_basis(ref_coords: &[[f64; 3]; 4]) -> Option<([[f64; 3]; 4], f64)> {
     let mut jref = [[0.0; 3]; 3];
     for a in 0..4 {
         for p in 0..3 {
@@ -98,7 +104,7 @@ pub(crate) fn reference_basis(ref_coords: &[[f64; 3]; 4]) -> ([[f64; 3]; 4], f64
         - jref[0][1] * (jref[1][0] * jref[2][2] - jref[1][2] * jref[2][0])
         + jref[0][2] * (jref[1][0] * jref[2][1] - jref[1][1] * jref[2][0]);
     let v0 = det.abs() / 6.0;
-    let inv = inv3(&jref);
+    let inv = inv3(&jref)?;
     let mut gx = [[0.0; 3]; 4];
     for a in 0..4 {
         for r in 0..3 {
@@ -109,7 +115,7 @@ pub(crate) fn reference_basis(ref_coords: &[[f64; 3]; 4]) -> ([[f64; 3]; 4], f64
             gx[a][r] = s;
         }
     }
-    (gx, v0)
+    Some((gx, v0))
 }
 
 /// Green–Lagrange strain (6-vector, engineering) from `F`.
@@ -172,14 +178,17 @@ fn iso_tangent(lambda: f64, mu: f64) -> [f64; 36] {
 /// under the given current configuration, using a St. Venant–Kirchhoff
 /// material (`lambda`, `mu`). Returns `f = ∫ Bᵀ S dV` (the elastic restoring
 /// force; subtract from the external load in a residual).
+///
+/// Returns `None` if the element is degenerate (zero/inverted reference
+/// Jacobian) so the caller can skip it instead of propagating `NaN`.
 pub fn tet4_internal_force(
     ref_coords: &[[f64; 3]; 4],
     cur_coords: &[[f64; 3]; 4],
     lambda: f64,
     mu: f64,
-) -> [f64; 12] {
-    let (gx, v0) = reference_basis(ref_coords);
-    let f = deformation_gradient(ref_coords, cur_coords);
+) -> Option<[f64; 12]> {
+    let (gx, v0) = reference_basis(ref_coords)?;
+    let f = deformation_gradient(ref_coords, cur_coords)?;
     let e = green_lagrange(&f);
     let s = second_pk_stress(&e, lambda, mu);
     // Stress tensor (symmetric) from Voigt.
@@ -194,20 +203,23 @@ pub fn tet4_internal_force(
             force[3 * a + i] = v0 * ssum;
         }
     }
-    force
+    Some(force)
 }
 
 /// Consistent tangent stiffness (length 144, row-major 12×12) of a linear
 /// tetrahedral element: material part `Bᵀ C B` plus the geometric (initial
 /// stress) part built from the 2nd P-K stress.
+///
+/// Returns `None` if the element is degenerate (zero/inverted reference
+/// Jacobian).
 pub fn tet4_tangent(
     ref_coords: &[[f64; 3]; 4],
     cur_coords: &[[f64; 3]; 4],
     lambda: f64,
     mu: f64,
-) -> Vec<f64> {
-    let (gx, v0) = reference_basis(ref_coords);
-    let f = deformation_gradient(ref_coords, cur_coords);
+) -> Option<Vec<f64>> {
+    let (gx, v0) = reference_basis(ref_coords)?;
+    let f = deformation_gradient(ref_coords, cur_coords)?;
     let e = green_lagrange(&f);
     let s = second_pk_stress(&e, lambda, mu);
     let c = iso_tangent(lambda, mu);
@@ -256,7 +268,7 @@ pub fn tet4_tangent(
             }
         }
     }
-    k
+    Some(k)
 }
 
 #[cfg(test)]
@@ -270,6 +282,41 @@ mod tests {
     }
 
     #[test]
+    fn inv3_rejects_degenerate() {
+        // All-zero and rank-deficient matrices must be rejected (None), never
+        // produce NaN/inf.
+        assert!(inv3(&[[0.0; 3]; 3]).is_none());
+        let rank_deficient = [
+            [1.0, 1.0, 1.0],
+            [2.0, 2.0, 2.0],
+            [0.0, 0.0, 1.0],
+        ];
+        assert!(inv3(&rank_deficient).is_none());
+        // A well-conditioned matrix inverts fine.
+        let ok = inv3(&[[2.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 4.0]]);
+        assert!(ok.is_some());
+        let inv = ok.unwrap();
+        assert!((inv[0][0] - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn degenerate_element_yields_none() {
+        // A flat (coplanar) tet has a zero reference-volume Jacobian → the
+        // geometry operators must report `None` rather than `NaN`.
+        let flat = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.5, 0.0], // coplanar with the others → degenerate
+        ];
+        let (la, mu) = lame(200e9, 0.3);
+        assert!(reference_basis(&flat).is_none());
+        assert!(deformation_gradient(&flat, &flat).is_none());
+        assert!(tet4_internal_force(&flat, &flat, la, mu).is_none());
+        assert!(tet4_tangent(&flat, &flat, la, mu).is_none());
+    }
+
+    #[test]
     fn zero_deformation_zero_force() {
         let r = [
             [0.0, 0.0, 0.0],
@@ -278,7 +325,7 @@ mod tests {
             [0.0, 0.0, 1.0],
         ];
         let (la, mu) = lame(200e9, 0.3);
-        let f = tet4_internal_force(&r, &r, la, mu);
+        let f = tet4_internal_force(&r, &r, la, mu).unwrap();
         assert!(f.iter().all(|v| v.abs() < 1e-9));
     }
 
@@ -298,7 +345,7 @@ mod tests {
             [0.05, 0.05, 1.1],
         ];
         let (la, mu) = lame(200e9, 0.3);
-        let f = tet4_internal_force(&r, &c, la, mu);
+        let f = tet4_internal_force(&r, &c, la, mu).unwrap();
         let mut s = [0.0; 3];
         for a in 0..4 {
             for i in 0..3 {
@@ -334,7 +381,7 @@ mod tests {
             })
             .collect();
         let (la, mu) = lame(200e9, 0.3);
-        let f = tet4_internal_force(&r, &c.try_into().unwrap(), la, mu);
+        let f = tet4_internal_force(&r, &c.try_into().unwrap(), la, mu).unwrap();
         assert!(f.iter().all(|v| v.abs() < 1e-2), "rotation force {:?}", f);
     }
 
@@ -349,7 +396,7 @@ mod tests {
             [0.0, 0.0, 1.0],
         ];
         let (la, mu) = lame(200e9, 0.3);
-        let k = tet4_tangent(&r, &r, la, mu);
+        let k = tet4_tangent(&r, &r, la, mu).unwrap();
         let mut u = [0.0; 12];
         for i in 0..12 {
             u[i] = (i as f64 * 0.013 - 0.05) * 1e-3; // ~1e-4 strain scale
@@ -360,7 +407,7 @@ mod tests {
                 cur[a][i] = r[a][i] + u[3 * a + i];
             }
         }
-        let f = tet4_internal_force(&r, &cur, la, mu);
+        let f = tet4_internal_force(&r, &cur, la, mu).unwrap();
         for i in 0..12 {
             let mut ku = 0.0;
             for j in 0..12 {
@@ -386,7 +433,7 @@ mod tests {
             [0.02, 0.03, 1.05],
         ];
         let (la, mu) = lame(200e9, 0.3);
-        let k = tet4_tangent(&r, &c, la, mu);
+        let k = tet4_tangent(&r, &c, la, mu).unwrap();
         for i in 0..12 {
             for j in 0..12 {
                 assert!((k[i * 12 + j] - k[j * 12 + i]).abs() < 1e-6);

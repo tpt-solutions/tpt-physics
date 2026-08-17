@@ -68,18 +68,30 @@ impl HardwareDispatch {
 
     /// Sparse matrix-vector product `y = A x` routed by problem size.
     ///
-    /// On the CPU this uses a `rayon` parallel row loop. On the GPU it returns
-    /// [`SolverError::BackendUnavailable`] until the `wgpu`/`spark` kernel
-    /// backend is integrated.
+    /// On the CPU this uses a `rayon` parallel row loop. On the GPU it dispatches
+    /// the [`crate::gpu::matvec_gpu`] WGSL compute kernel when the `gpu` feature
+    /// is enabled; without the feature (or with no GPU adapter present) it returns
+    /// [`SolverError::BackendUnavailable`].
     pub fn matvec(&self, a: &Csr, x: &[f64], y: &mut [f64]) -> Result<(), SolverError> {
         match self.select(a.nrows) {
             ComputeTarget::Cpu => {
                 parallel_matvec_csr(a, x, y);
                 Ok(())
             }
-            ComputeTarget::Gpu => Err(SolverError::BackendUnavailable(
-                "GPU (wgpu/spark) kernel backend not linked in this build".into(),
-            )),
+            ComputeTarget::Gpu => {
+                #[cfg(feature = "gpu")]
+                {
+                    crate::gpu::matvec_gpu(a, x, y)
+                }
+                #[cfg(not(feature = "gpu"))]
+                {
+                    Err(SolverError::BackendUnavailable(
+                        "GPU (wgpu/spark) kernel backend not linked in this build \
+                         (enable the `gpu` feature)"
+                            .into(),
+                    ))
+                }
+            }
         }
     }
 }

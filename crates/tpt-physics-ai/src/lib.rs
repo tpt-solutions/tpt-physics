@@ -11,6 +11,23 @@
 //!   returns `∂f/∂s` and `∂f/∂a` via a single forward-mode AD pass each.
 //! * [`GymWrapper`] — adapts any [`DifferentiablePlant`] into a [`GymEnv`],
 //!   so an RL agent can both act on and differentiate through the physics.
+//!
+//! # Example
+//!
+//! ```
+//! use tpt_physics_ai::{DifferentiablePlant, GymWrapper, HarmonicOscillator};
+//!
+//! let plant = HarmonicOscillator::new();
+//! let mut env = GymWrapper::new(plant, vec![1.0, 0.0], 5);
+//! let _ = env.reset();
+//! let action = tpt_math_linalg_dense::DVector::from_fn(1, |_| 0.0);
+//! for _ in 0..5 {
+//!     let step = env.step(&action);
+//!     assert!(step.observation.iter().all(|v| v.is_finite()));
+//! }
+//! // The oscillator damps toward rest under no force.
+//! assert!(env.state().iter().map(|v| v * v).sum::<f64>() < 1.0);
+//! ```
 
 use tpt_math_autodiff::fwd::Dual;
 use tpt_math_linalg_dense::DVector;

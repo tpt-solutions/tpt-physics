@@ -1,44 +1,42 @@
-# tpt-physics task runner.
+# justfile — convenient shortcuts for the tpt-physics workspace.
 #
-# Recipes for the common developer workflows. Requires `just`
-# (https://github.com/casey/just) and a Rust toolchain.
+# Run `just` to see the list, e.g. `just check`, `just test`, `just bench`.
 
 # List available recipes.
 default:
     @just --list
 
-# Verify the sibling dependency workspaces (tpt-math, tpt-fem) are present.
-setup:
-    ./scripts/bootstrap.sh
-
-# Type-check the whole workspace.
-check:
-    cargo check --workspace --all-targets
-
-# Apply rustfmt.
+# Format the whole workspace (and check in CI).
 fmt:
     cargo fmt --all
 
-# Lint with clippy, denying warnings (mirrors CI).
-lint:
+# Verify formatting is clean (CI gate).
+fmt-check:
+    cargo fmt --all -- --check
+
+# Clippy with warnings denied (CI gate).
+clint:
     cargo clippy --workspace --all-targets -- -D warnings
+
+# Deny copyleft / unexpected licenses (CI gate).
+deny:
+    cargo deny check
+
+# Build every crate.
+build:
+    cargo build --workspace
 
 # Run the full test suite.
 test:
     cargo test --workspace
 
-# Run only the fast (non-ignored) tests.
-test-fast:
-    cargo test --workspace -- --skip large_scale
-
-# Run the criterion benchmark harnesses.
+# Run all criterion benchmarks.
 bench:
     cargo bench --workspace
 
-# Build the API documentation.
-doc:
-    cargo doc --no-deps --workspace
+# Seed sibling dependencies and check the workspace.
+setup:
+    pwsh scripts/bootstrap.ps1
 
-# Build every example.
-examples:
-    cargo build --workspace --examples
+# End-to-end check used by CI.
+ci: fmt-check clint deny build test

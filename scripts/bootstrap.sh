@@ -1,31 +1,47 @@
 #!/usr/bin/env bash
-# bootstrap.sh — verify the local sibling dependency workspaces exist.
+# Bootstrap the tpt-physics workspace: verify sibling crates are present and
+# that the Rust toolchain is available, then run a full check.
 #
-# tpt-physics consumes tpt-math and tpt-fem through Cargo path dependencies
-# (see the [workspace.dependencies] table in the root Cargo.toml). Those
-# crates are expected to live in sibling directories. This script checks they
-# are present and points you at the override env vars if they are not.
+# tpt-physics depends on sibling crates tpt-math and tpt-fem via path
+# dependencies. Clone them next to this repo:
+#
+#   $HOME/src/tpt-math
+#   $HOME/src/tpt-fem
+#   $HOME/src/tpt-physics   <-- this repo
+#
+# Usage:  ./scripts/bootstrap.sh            # check + cargo check
+#         ./scripts/bootstrap.sh --build    # also run cargo build
+#         ./scripts/bootstrap.sh --test     # also run cargo test
+
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SIBLINGS=(tpt-math tpt-fem)
 
-missing=0
-for dep in tpt-math tpt-fem; do
-    if [ ! -d "$ROOT/../$dep" ]; then
-        echo "ERROR: sibling workspace '../$dep' not found." >&2
-        echo "       Clone it next to this repo, or set ${dep^^}_PATH to its location." >&2
-        missing=1
-    else
-        echo "OK: found ../$dep"
-    fi
+for s in "${SIBLINGS[@]}"; do
+  if [ -d "$ROOT/../$s" ]; then
+    echo "[ok] found sibling: $s"
+  else
+    echo "error: missing sibling crate '$s' at $ROOT/../$s" >&2
+    echo "clone it next to this repo (see header comment)" >&2
+    exit 1
+  fi
 done
 
-if [ "$missing" -ne 0 ]; then
-    exit 1
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "error: cargo not found on PATH. Install Rust from https://rustup.rs (>= 1.84)." >&2
+  exit 1
 fi
+echo "[ok] $(cargo --version)"
 
-echo ""
-echo "All sibling dependencies present. Next steps:"
-echo "  just setup   # re-run this check"
-echo "  just test    # build & run the test suite"
-echo "  just bench   # run the criterion benchmarks"
+echo "==> cargo check --workspace"
+cargo check --workspace
+if [ "${1:-}" = "--build" ]; then
+  echo "==> cargo build --workspace"
+  cargo build --workspace
+fi
+if [ "${1:-}" = "--test" ]; then
+  echo "==> cargo test --workspace"
+  cargo test --workspace
+fi
+echo "Bootstrap complete."
