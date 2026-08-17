@@ -39,12 +39,15 @@ a modular, composable, permissively-licensed Rust workspace.
 ```
 tpt-physics/
 ├── tpt-physics-core      # Material database + CAD ingestion adapter
-├── tpt-physics-solver    # Iterative solvers (CG, GMRES), time integration, HW dispatch
-├── tpt-physics-fea       # FEA elements (Tet10, 3D beam, shell), nonlinear, thermal coupling
+├── tpt-physics-solver    # Iterative solvers (CG, GMRES*), time integration, HW dispatch*
+├── tpt-physics-fea       # FEA elements (Tet10, 3D beam*, shell*), nonlinear (Tet4 only), thermal coupling
 ├── tpt-physics-dem       # Granular physics: Hertz-Mindlin, spatial hashing, SIMD
 ├── tpt-physics-cfd       # Lattice Boltzmann (D2Q9) incompressible flow
 └── tpt-physics-ai        # Differentiable physics wrappers for RL agents
 ```
+(\* = experimental: preconditioned GMRES, GPU dispatch backend, 3-D beam and
+shell elements. Validated: Tet10, CG(+precond), nonlinear Tet4, J2 plasticity,
+DEM, LBM cavity/cylinder, differentiable plants.)
 
 ## Crate-reuse map
 
@@ -78,9 +81,67 @@ cargo build --workspace
 cargo test  --workspace
 ```
 
-Requires a Rust toolchain ≥ 1.84. The sibling `tpt-math` and `tpt-fem` repos
+Requires a Rust toolchain ≥ 1.84. The sibling `tpt-math` and `t-fem` repos
 must be checked out as siblings of this directory (the `[workspace.dependencies]`
 in `Cargo.toml` reference them by relative path).
+
+## Quickstart
+
+```sh
+# 1. Verify the sibling dependency workspaces are present.
+./scripts/bootstrap.sh        # or: just setup
+
+# 2. Build, test, and run the example gallery.
+just test                     # cargo test --workspace
+just examples                 # build every example
+cargo run --release --example beam -p tpt-physics-fea
+```
+
+A minimal end-to-end FEA solve via the declarative JSON problem spec
+(`tpt-physics-fea::spec`):
+
+```rust
+use tpt_physics_fea::spec::{DomainSpec, LoadSpec, ProblemSpec, SolverSpec};
+
+let spec = ProblemSpec {
+    materials: None,
+    material: tpt_physics_fea::spec::MaterialRef::Inline(
+        tpt_physics_core::Material::new("Steel", 200e9, 0.3, 7850.0, 12e-6),
+    ),
+    domain: DomainSpec::Box { min: [0.0,0.0,0.0], max: [1.0,1.0,1.0], n: [4,4,4] },
+    boundary_conditions: tpt_physics_fea::spec::BcSpec {
+        fixed_planes: vec!["y_min".to_string()],
+    },
+    loads: LoadSpec { self_weight: true, gravity: 9.81 },
+    solver: SolverSpec::StaticLinear,
+};
+let solved = spec.solve(&tpt_physics_core::MaterialRegistry::new()).unwrap();
+println!("top settlement = {:.3e} m", solved.free_top_settlement_y);
+```
+
+The spec round-trips through JSON (`ProblemSpec::from_json` /
+`to_json`), so problems can be authored as data files rather than code.
+
+## Validated vs. experimental
+
+Capabilities are split by verification maturity. Anything *experimental* is
+useful and tested for the cases noted, but has **not** been validated against a
+full benchmark suite and may need more work before production use.
+
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Tet10 element, CG (+precond), GMRES | ✅ Validated | unit + integration tests |
+| Geometric-nonlinear Tet4, J2 plasticity | ✅ Validated | Total-Lagrangian; Tet4 continuum only |
+| DEM (Hertz–Mindlin, SIMD, >100k) | ✅ Validated | multiple physics tests |
+| LBM (Poiseuille, flow-past-cylinder) | ✅ Validated | analytic + shedding benchmarks |
+| Differentiable plants (oscillator, pendulum) | ✅ Validated | analytic Jacobian match |
+| Declarative JSON problem spec | ✅ Validated | self-weight box solves |
+| Cohesive bonds + inter-particle heat | ✅ Validated | new in this pass |
+| 3-D beam (Euler–Bernoulli) element | ⚠️ Experimental | cantilever verified; no shear/flexible-beam benchmark |
+| Mindlin–Reissner shell4 | ⚠️ Experimental | rigid-body + simply-supported plate; no Scordelis–Lo |
+| Preconditioned GMRES | ⚠️ Experimental | Jacobi preconditioner; no AMG yet |
+| GPU hardware-dispatch backend | ⚠️ Experimental | selects target; `wgpu`/`spark` kernel returns `BackendUnavailable` |
+| Lid-driven cavity | ⚠️ Experimental | `#[ignore]`d — primary-vortex convergence issue |
 
 ## Roadmap
 
@@ -107,28 +168,49 @@ that asserts the *qualitative physics*, not just "it compiles". Highlights:
 | DEM | `tests/random_close_packing.rs` | mono-disperse bed packs to the RCP fraction (~0.64) |
 | DEM | `tests/large_scale.rs` | the `rayon` stepper advances **>100k** particles stably |
 | FEA | `tests/cooks_membrane.rs` | J2 plasticity: more compliant than elastic, hardening stiffens |
-| CFD | `tests/lid_driven_cavity.rs` | lid-driven cavity develops the primary vortex + recirculation |
+| CFD | `tests/lid_driven_cavity.rs` | lid-driven cavity: **known-failing / `#[ignore]`d** (primary-vortex convergence issue; run `cargo test --release -- --ignored`) |
 | CFD | `tests/flow_past_cylinder.rs` | steady symmetric wake (low Re) and von Kármán shedding (moderate Re) |
 | AI | `lib.rs` | second differentiable plant (pendulum) matches analytic Jacobians |
 | FEA | `examples/pile_cage_spacer.rs` | end-to-end spacer milestone (CAD→mesh→elasticity) |
 
 ## Benchmarks & examples
 
-Runnable, timing-printing examples (no extra benchmark harness required):
+Long-term performance tracking uses a [`criterion`](https://github.com/japaric/criterion.rs)
+harness (replacing the old `eprintln!`-timing examples):
 
 ```sh
-# DEM throughput: particles/second for the parallel stepper.
-cargo run --release -p tpt-physics-dem --example bench_large_scale
+cargo bench --workspace            # all crates
+cargo bench -p tpt-physics-dem    # DEM parallel stepper (>100k particles)
+cargo bench -p tpt-physics-solver # CG / preconditioned-CG / GMRES
+cargo bench -p tpt-physics-fea    # declarative-spec box solve
+cargo bench -p tpt-physics-cfd     # LBM lattice step
+```
 
-# End-to-end "Spacer Benchmark" case study: CAD → mesh → material → FEA.
-cargo run --release -p tpt-physics-fea --example spacer_benchmark
+Runnable examples (see [`docs/GALLERY.md`](docs/GALLERY.md) for the full
+index, or run `./scripts/run_gallery.sh`):
+
+```sh
+cargo run --release --example beam          -p tpt-physics-fea   # cantilever tip deflection
+cargo run --release --example cavity        -p tpt-physics-cfd   # lid-driven cavity
+cargo run --release --example granular_pile -p tpt-physics-dem   # settling pile
+cargo run --release --example rl_pendulum  -p tpt-physics-ai    # differentiable env + Jacobians
+cargo run --release --example gradient_opt -p tpt-physics-ai    # gradient-based control opt
 ```
 
 The DEM `rayon` stepper ([`World::step_par`]) is the CPU-acceleration path for
-large counts; the hardware-dispatch API in `tpt-physics-solver` selects the
-GPU target for problems above its size threshold, with the `wgpu`/`spark`
-compute kernel as the tracked follow-up (it currently reports
-`BackendUnavailable`, exactly as the solver's dispatch does).
+large counts; the hardware-dispatch API in `tpt-physics-solver` selects the GPU
+target for problems above its size threshold, with the `wgpu`/`spark` compute
+kernel as the tracked follow-up (it currently reports `BackendUnavailable`,
+exactly as the solver's dispatch does).
+
+## Troubleshooting
+
+- **`failed to load source for dependency tpt-math-...`** — the sibling repos
+  are missing. Run `./scripts/bootstrap.sh` (or `scripts/bootstrap.ps1`) and
+  clone `tpt-math` / `tpt-fem` as siblings of this directory.
+- **`lid_driven_cavity` test "fails"** — it is intentionally `#[ignore]`d
+  (experimental). Run it explicitly with
+  `cargo test --release -- --ignored` if you want to inspect it.
 
 ## License
 

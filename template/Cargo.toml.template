@@ -1,0 +1,15 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A tpt-physics application."
+repository = "https://github.com/{{github-user}}/{{project-name}}"
+
+[dependencies]
+tpt-physics-core = { path = "../tpt-physics/crates/tpt-physics-core" }
+tpt-physics-solver = { path = "../tpt-physics/crates/tpt-physics-solver" }
+tpt-physics-fea = { path = "../tpt-physics/crates/tpt-physics-fea" }
+tpt-physics-dem = { path = "../tpt-physics/crates/tpt-physics-dem" }
+tpt-physics-cfd = { path = "../tpt-physics/crates/tpt-physics-cfd" }
+tpt-physics-ai = { path = "../tpt-physics/crates/tpt-physics-ai" }

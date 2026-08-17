@@ -6,9 +6,14 @@
 //! re-scope identified as net-new:
 //!
 //! * [`cg`] / [`cg_pc`] — (preconditioned) Conjugate Gradient
-//! * [`gmres`] — restarted GMRES for non-symmetric systems
+//! * [`gmres`] — restarted GMRES for non-symmetric systems (**preconditioned
+//!   GMRES is experimental**; only the unpreconditioned variant is currently
+//!   wired, see the crate roadmap)
 //! * [`rk4`] / [`NewmarkBeta`] — Runge–Kutta and Newmark-beta time integration
-//! * [`HardwareDispatch`] — route kernels to CPU (`rayon`) or GPU (`wgpu`/`spark`)
+//! * [`HardwareDispatch`] — route kernels to CPU (`rayon`) or GPU (`wgpu`/`spark`).
+//!   **The GPU backend is experimental** — it selects the target and runs the
+//!   CPU path, but the actual `wgpu`/`spark` kernel returns
+//!   `BackendUnavailable` until linked.
 //!
 //! All solvers operate on the [`LinearOperator`] trait, so they work on
 //! [`tpt_fem_sparse::Csr`] (reused from `tpt-fem`), dense matrices, or

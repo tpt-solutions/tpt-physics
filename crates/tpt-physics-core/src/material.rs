@@ -109,6 +109,13 @@ impl MaterialRegistry {
     ///
     /// Values are representative textbook properties; always verify against the
     /// specific alloy/specification before production use.
+    ///
+    /// ```
+    /// use tpt_physics_core::MaterialRegistry;
+    /// let reg = MaterialRegistry::with_defaults();
+    /// let steel = reg.get("Structural Steel").expect("present");
+    /// assert!(steel.youngs_modulus > 100e9);
+    /// ```
     pub fn with_defaults() -> Self {
         MaterialRegistry {
             materials: vec![

@@ -12,6 +12,16 @@ use crate::linalg::{dot, norm2, LinearOperator};
 /// Plain (unpreconditioned) Conjugate Gradient.
 ///
 /// Solves `A x = b` for SPD `A`. `x0`, if `None`, starts from the zero vector.
+///
+/// ```
+/// use tpt_physics_solver::cg::cg;
+/// use tpt_physics_solver::linalg::csr_from_dense;
+/// // 2×2 SPD system: 4x - y = 3, -x + 4y = 3  ⇒  x = y = 1.
+/// let a = csr_from_dense(2, 2, &[4.0, -1.0, -1.0, 4.0]);
+/// let (x, rep) = cg(&a, &[3.0, 3.0], None, 1e-9, 100).unwrap();
+/// assert!(rep.converged);
+/// assert!((x[0] - 1.0).abs() < 1e-8 && (x[1] - 1.0).abs() < 1e-8);
+/// ```
 pub fn cg<A: LinearOperator + ?Sized>(
     a: &A,
     b: &[f64],

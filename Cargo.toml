@@ -8,6 +8,10 @@ members = [
     "crates/tpt-physics-cfd",
     "crates/tpt-physics-ai",
 ]
+# The Python (PyO3) binding lives outside the Rust workspace so it does not
+# pull Python dev headers into the default `cargo build --workspace`. Build it
+# separately with `maturin` (see `py/tpt-physics-py`).
+exclude = ["py/tpt-physics-py"]
 
 [workspace.package]
 description = "tpt-physics — a pure-Rust, AI-native engineering & physics simulation framework"
@@ -47,6 +51,7 @@ tracing = "0.1"
 proptest = "1"
 bincode = "1"
 wide = "0.7"
+criterion = "0.5"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"

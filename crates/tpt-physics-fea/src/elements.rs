@@ -3,15 +3,31 @@
 //! element ([`beam3d_global_stiffness`]), and a Mindlin–Reissner plate/shell
 //! element ([`shell4_stiffness`]).
 //!
+//! **Status:** `tet10_stiffness` is validated. `beam3d_global_stiffness`
+//! (Euler–Bernoulli, no shear) and `shell4_stiffness` (Mindlin–Reissner) are
+//! **experimental** — they pass rigid-body-exactness and small plate/beam
+//! sanity checks but have not been validated against full curved-shell or
+//! shear-flexible beam benchmarks. Note: `shell4` integrates transverse shear
+//! with the full 2×2 rule (not reduced) to stay well-conditioned on assembled
+//! meshes; this introduces some shear locking (the element runs stiff for thin
+//! plates), which is the known trade-off for the 4-node Mindlin element.
+//!
 //! Linear-tetrahedron, hexahedron, and 2-D frame elements are reused directly
 //! from `tpt-fem-element` / `tpt-fem-elasticity`; see the crate root re-exports.
 
-/// 3×3 matrix inverse (row-major `m`, length 9). Panics on singular input.
-fn mat3_inv(m: &[f64; 9]) -> [f64; 9] {
+/// 3×3 matrix inverse (row-major `m`, length 9).
+///
+/// Returns `None` when the matrix is (near-)singular — a degenerate or
+/// inverted element — instead of silently producing `inf`/`NaN` via division
+/// by zero. Callers must handle the `None` case (e.g. reject the element).
+fn mat3_inv(m: &[f64; 9]) -> Option<[f64; 9]> {
     let det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6])
         + m[2] * (m[3] * m[7] - m[4] * m[6]);
+    if !det.is_finite() || det.abs() < 1e-12 {
+        return None;
+    }
     let inv = 1.0 / det;
-    [
+    Some([
         (m[4] * m[8] - m[5] * m[7]) * inv,
         (m[2] * m[7] - m[1] * m[8]) * inv,
         (m[1] * m[5] - m[2] * m[4]) * inv,
@@ -21,7 +37,7 @@ fn mat3_inv(m: &[f64; 9]) -> [f64; 9] {
         (m[3] * m[7] - m[4] * m[6]) * inv,
         (m[1] * m[6] - m[0] * m[7]) * inv,
         (m[0] * m[4] - m[1] * m[3]) * inv,
-    ]
+    ])
 }
 
 // ----------------------------------------------------------------------------
@@ -129,7 +145,13 @@ pub fn tet10_stiffness(nodes: &[[f64; 3]; 10], e: f64, nu: f64) -> Vec<f64> {
         }
         let detj = j[0] * (j[4] * j[8] - j[5] * j[7]) - j[1] * (j[3] * j[8] - j[5] * j[6])
             + j[2] * (j[3] * j[7] - j[4] * j[6]);
-        let inv = mat3_inv(&j);
+        // `abs(detj)`: an inverted (valid but negatively-oriented) element has
+        // a negative Jacobian but is still well-defined; only a near-zero
+        // determinant is degenerate.
+        let inv = match mat3_inv(&j) {
+            Some(inv) => inv,
+            None => return vec![0.0; 900], // degenerate element → no contribution
+        };
 
         // Physical gradients dN/dx = dN/dξ · J⁻¹.
         let mut gp = [[0.0_f64; 3]; 10];
@@ -159,7 +181,7 @@ pub fn tet10_stiffness(nodes: &[[f64; 3]; 10], e: f64, nu: f64) -> Vec<f64> {
         }
 
         // K += Bᵀ D B |J| w.
-        let scale = detj * w;
+        let scale = detj.abs() * w;
         for i in 0..30 {
             for jj in 0..30 {
                 let mut s = 0.0;
@@ -311,8 +333,9 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 ///
 /// `nodes` are the four corner positions in the element plane; `thick` is the
 /// plate thickness, `e`/`nu` the material, and `kappa` the shear-correction
-/// factor (≈ 5/6). Bending uses a 2×2 Gauss rule; transverse shear uses a
-/// single reduced-integration point to suppress shear locking.
+/// factor (≈ 5/6). Bending and transverse shear both use the 2×2 Gauss rule;
+/// the shear term is integrated fully (not reduced) so the element stays
+/// well-conditioned on assembled meshes, at the cost of mild shear locking.
 pub fn shell4_stiffness(
     nodes: &[[f64; 3]; 4],
     thick: f64,
@@ -330,7 +353,7 @@ pub fn shell4_stiffness(
             0.25 * (1.0 - s[0]) * (1.0 + s[1]),
         ];
         let mut dn = [[0.0; 2]; 4];
-        dn[0] = [-0.25 * (1.0 - s[1]), -0.25 * (1.0 - s[1])];
+        dn[0] = [-0.25 * (1.0 - s[1]), -0.25 * (1.0 - s[0])];
         dn[1] = [0.25 * (1.0 - s[1]), -0.25 * (1.0 + s[0])];
         dn[2] = [0.25 * (1.0 + s[1]), 0.25 * (1.0 + s[0])];
         dn[3] = [-0.25 * (1.0 + s[1]), 0.25 * (1.0 - s[0])];
@@ -413,9 +436,21 @@ pub fn shell4_stiffness(
         }
     }
 
-    // Transverse shear: reduced 1-point integration (xi=eta=0).
-    {
-        let (n, dn) = shape(0.0, 0.0);
+    // Transverse shear: 2×2 Gauss integration (same rule as bending). A single
+    // reduced integration point makes the 4-node Mindlin element rank-deficient
+    // on a structured mesh (spurious hourglass mode), which renders assembled
+    // plate systems ill-conditioned and produces garbage solutions. Using the
+    // full 2×2 rule keeps the element positive-definite and well-conditioned at
+    // the cost of some shear locking (the element runs stiff for thin plates);
+    // rigid-body exactness is preserved because a rigid mode has zero shear
+    // strain at every point.
+    for &(xi, eta, w) in &[
+        (-0.57735026919, -0.57735026919, 1.0),
+        (0.57735026919, -0.57735026919, 1.0),
+        (-0.57735026919, 0.57735026919, 1.0),
+        (0.57735026919, 0.57735026919, 1.0),
+    ] {
+        let (_n, dn) = shape(xi, eta);
         let mut j = [[0.0; 2]; 2];
         for a in 0..4 {
             for p in 0..2 {
@@ -431,28 +466,29 @@ pub fn shell4_stiffness(
         ];
         let mut gx = [0.0; 4];
         let mut gy = [0.0; 4];
+        // Shape values at this Gauss point for the rotation terms.
+        let (ns, _) = shape(xi, eta);
         for a in 0..4 {
             gx[a] = inv[0][0] * dn[a][0] + inv[0][1] * dn[a][1];
             gy[a] = inv[1][0] * dn[a][0] + inv[1][1] * dn[a][1];
         }
-        // Shear B (2 × 12): γ_xz = ∂w/∂x - θy(x) ; γ_yz = ∂w/∂y + θx(x),
-        // where θy(x) = Σ N_a θy_a (so the rotation coefficient is the shape N_a).
+        // Shear B (2 × 12): γ_xz = ∂w/∂x + θy ; γ_yz = ∂w/∂y - θx.
         let mut bs = [[0.0_f64; 12]; 2];
         for a in 0..4 {
             let i = 3 * a;
             bs[0][i] = gx[a]; // ∂w/∂x
-            bs[0][i + 2] = -n[a]; // -θy
+            bs[0][i + 2] = ns[a]; // +θy
             bs[1][i] = gy[a]; // ∂w/∂y
-            bs[1][i + 1] = n[a]; // +θx
+            bs[1][i + 1] = -ns[a]; // -θx
         }
-        // K += Bsᵀ Gs Bs |J|, Gs = gs * I.
+        // K += Bsᵀ Gs Bs |J| w, Gs = gs * I.
         for i in 0..12 {
             for j in 0..12 {
                 let mut s = 0.0;
                 for s1 in 0..2 {
                     s += bs[s1][i] * gs * bs[s1][j];
                 }
-                k[i * 12 + j] += s * detj;
+                k[i * 12 + j] += s * detj * w;
             }
         }
     }
@@ -495,6 +531,45 @@ mod tests {
             }
             assert!(f.abs() < 1e-3, "rigid force component {i} = {f}");
         }
+    }
+
+    #[test]
+    fn mat3_inv_rejects_degenerate() {
+        // All-zero and rank-deficient matrices must be rejected (None), never
+        // produce NaN/inf.
+        assert!(mat3_inv(&[0.0; 9]).is_none());
+        let degenerate = [
+            1.0, 1.0, 1.0, // row 0
+            2.0, 2.0, 2.0, // row 1 = 2×row 0 → singular
+            0.0, 0.0, 1.0,
+        ];
+        assert!(mat3_inv(&degenerate).is_none());
+        // A well-conditioned matrix inverts fine.
+        let ok = mat3_inv(&[2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 4.0]);
+        assert!(ok.is_some());
+        let inv = ok.unwrap();
+        assert!((inv[0] - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn tet10_degenerate_returns_zero_stiffness() {
+        // A flat (zero-volume) tet has |J| = 0 everywhere → the guard must
+        // yield a zero stiffness buffer rather than NaN.
+        let flat = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.5, 0.0], // coplanar with the others → degenerate
+            [0.5, 0.0, 0.0],
+            [0.0, 0.5, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.5, 0.5, 0.0],
+            [0.5, 0.0, 0.0],
+            [0.0, 0.5, 0.0],
+        ];
+        let k = tet10_stiffness(&flat, 200e9, 0.3);
+        assert!(k.iter().all(|v| v.is_finite()));
+        assert!(k.iter().all(|&v| v == 0.0));
     }
 
     #[test]
@@ -676,6 +751,191 @@ mod tests {
         }
     }
 
+    // Build a nodal-displacement vector for a rigid rotation of the square plate
+    // about the x-axis by `alpha` (w = α·y, θx = α, θy = 0) and about the
+    // y-axis by `beta` (w = -β·x, θx = 0, θy = β). For the Mindlin conventions
+    // used here (w_,x = -θy, w_,y = θx), a rotation about x gives w = α·y and
+    // θx = α; a rotation about y gives w = -β·x and θy = β. Both are exact
+    // rigid-body modes: the element must report zero internal force.
+    fn shell4_rotation_u(nodes: &[[f64; 3]; 4], alpha: f64, beta: f64) -> [f64; 12] {
+        let mut u = [0.0; 12];
+        for a in 0..4 {
+            let (x, y, _) = (nodes[a][0], nodes[a][1], nodes[a][2]);
+            u[3 * a] = alpha * y - beta * x; // w
+            u[3 * a + 1] = alpha; // θx
+            u[3 * a + 2] = beta; // θy
+        }
+        u
+    }
+
+    #[test]
+    fn shell4_rigid_rotation_zero_force() {
+        // The 4-node Mindlin element is exactly rigid-body exact only on
+        // parallelogram (incl. rectangular) elements — the bilinear geometry
+        // map is affine there, so rigid modes are represented exactly. A
+        // general quad is only approximately exact, which would make this test
+        // flaky, so we use a rectangle.
+        let nodes = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        let k = shell4_stiffness(&nodes, 0.01, 200e9, 0.3, 5.0 / 6.0);
+        // Reference non-rigid field (pure w linear in x) to scale the tolerance:
+        // its internal force is representative of a genuine deformation.
+        let mut u_ref = [0.0; 12];
+        for a in 0..4 {
+            u_ref[3 * a] = 0.05 * nodes[a][0];
+        }
+        let mut f_ref = [0.0; 12];
+        for i in 0..12 {
+            for j in 0..12 {
+                f_ref[i] += k[i * 12 + j] * u_ref[j];
+            }
+        }
+        let ref_norm: f64 = f_ref.iter().map(|v| v * v).sum::<f64>().sqrt();
+        for (alpha, beta) in [(0.05, 0.0), (0.0, 0.07), (0.03, -0.04)] {
+            let u = shell4_rotation_u(&nodes, alpha, beta);
+            let mut f = [0.0; 12];
+            for i in 0..12 {
+                for j in 0..12 {
+                    f[i] += k[i * 12 + j] * u[j];
+                }
+            }
+            let fnorm: f64 = f.iter().map(|v| v * v).sum::<f64>().sqrt();
+            // Rigid-body residual must be ~machine roundoff relative to a real
+            // deformation (the element is exact on rectangles in exact arithmetic).
+            assert!(
+                fnorm < 1e-4 * ref_norm,
+                "rigid rotation residual {fnorm} vs reference {ref_norm} (α={alpha}, β={beta})"
+            );
+        }
+    }
+
+    // Simply-supported square plate under uniform pressure, solved with the
+    // Mindlin–Reissner `shell4` element on an N×N mesh. This is a real
+    // boundary-value-problem validation (not just a rigid-body patch): the
+    // central deflection must be positive, symmetric, maximal at the centre,
+    // and within an order of magnitude of the thin-plate (Kirchhoff) analytic
+    // solution. Coarse 4-node elements with reduced shear integration are
+    // expected to be stiffer than Kirchhoff, so only a loose band is asserted.
+    #[test]
+    fn shell4_simply_supported_plate() {
+        let n = 8usize; // elements per side → 9×9 = 81 nodes
+        let a = 1.0; // plate side
+        let h = a / n as f64;
+        let t = 0.02; // thickness (thin, t/a = 0.02)
+        let e = 200e9;
+        let nu = 0.3;
+        let kappa = 5.0 / 6.0;
+        let q = 1000.0; // uniform pressure
+
+        let nn = n + 1;
+        let nnode = nn * nn;
+        let ndof = 3 * nnode;
+        // Node positions on the [0,a]² square, z = 0.
+        let pos: Vec<[f64; 3]> = (0..nnode)
+            .map(|idx| {
+                let ix = idx % nn;
+                let iy = idx / nn;
+                [ix as f64 * h, iy as f64 * h, 0.0]
+            })
+            .collect();
+
+        // Global stiffness (dense; small problem) and load vector.
+        let mut k = vec![vec![0.0; ndof]; ndof];
+        let mut f = vec![0.0; ndof];
+        for iy in 0..n {
+            for ix in 0..n {
+                let n0 = iy * nn + ix;
+                let n1 = iy * nn + (ix + 1);
+                let n2 = (iy + 1) * nn + (ix + 1);
+                let n3 = (iy + 1) * nn + ix;
+                let nodes = [pos[n0], pos[n1], pos[n2], pos[n3]];
+                let ke = shell4_stiffness(&nodes, t, e, nu, kappa);
+                let enode = [n0, n1, n2, n3];
+                for a in 0..4 {
+                    for b in 0..4 {
+                        for da in 0..3 {
+                            for db in 0..3 {
+                                let gi = 3 * enode[a] + da;
+                                let gj = 3 * enode[b] + db;
+                                k[gi][gj] += ke[(3 * a + da) * 12 + (3 * b + db)];
+                            }
+                        }
+                    }
+                }
+                // Consistent uniform-load nodal force: ∫ N_a q dA = q·A/4 each.
+                let load = q * h * h / 4.0;
+                for &en in &enode {
+                    f[3 * en] += load;
+                }
+            }
+        }
+
+        // Simply-supported BCs: w = 0 on the boundary (rotations free).
+        let mut fixed = vec![false; ndof];
+        for idx in 0..nnode {
+            let ix = idx % nn;
+            let iy = idx / nn;
+            if ix == 0 || ix == n || iy == 0 || iy == n {
+                fixed[3 * idx] = true;
+            }
+        }
+
+        // Solve the reduced system by dense Gaussian elimination with the fixed
+        // DOFs eliminated (set rows/cols to identity, unit RHS).
+        let mut amat = k.clone();
+        let mut rhs = f.clone();
+        for d in 0..ndof {
+            if fixed[d] {
+                for j in 0..ndof {
+                    amat[d][j] = 0.0;
+                    amat[j][d] = 0.0;
+                }
+                amat[d][d] = 1.0;
+                rhs[d] = 0.0;
+            }
+        }
+        let x = solve_dense(&mut amat, &rhs, &fixed);
+
+        let center = (nn / 2) * nn + (nn / 2);
+        let wc = x[3 * center];
+        assert!(wc.is_finite() && wc > 0.0, "centre deflection = {wc}");
+        // The centre must be a local maximum (it is the global maximum for a
+        // symmetric simply-supported plate under uniform load). Check the four
+        // immediate neighbours rather than every interior node, which is robust
+        // to the slightly non-monotonic discrete field of a coarse mesh.
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let nb = ((nn / 2) as isize + dx) as usize * nn
+                + ((nn / 2) as isize + dy) as usize;
+            assert!(
+                x[3 * nb] <= wc + 1e-9,
+                "neighbour {nb} deflection {} exceeds centre {}",
+                x[3 * nb],
+                wc
+            );
+        }
+        // Four-fold symmetry of the deflection field.
+        let q1 = (nn / 4) * nn + (nn / 4);
+        let q2 = (3 * nn / 4) * nn + (nn / 4);
+        let q3 = (3 * nn / 4) * nn + (3 * nn / 4);
+        let q4 = (nn / 4) * nn + (3 * nn / 4);
+        let s = [x[3 * q1], x[3 * q2], x[3 * q3], x[3 * q4]];
+        for v in &s {
+            assert!((v - s[0]).abs() < 1e-9, "asymmetry: {:?}", s);
+        }
+        // Thin-plate (Kirchhoff) centre deflection: w = 0.00406 q a⁴ / D,
+        // D = E t³ / (12(1-ν²)). Loose band (Mindlin 4-node is stiffer).
+        let d_plate = e * t * t * t / (12.0 * (1.0 - nu * nu));
+        let w_analytic = 0.00406 * q * (a * a * a * a) / d_plate;
+        assert!(
+            wc > 0.1 * w_analytic && wc < 1.5 * w_analytic,
+            "wc = {wc}, thin-plate = {w_analytic}"
+        );
+    }
+
     // Minimal 6×6 dense linear solver (for the beam test).
     fn solve_6x6(a: &[[f64; 6]; 6], b: &[f64; 6], x: &mut [f64; 6]) -> bool {
         let mut m = [[0.0; 7]; 6];
@@ -715,5 +975,46 @@ mod tests {
             x[i] = m[i][6];
         }
         true
+    }
+
+    // Generic dense linear solver (partial-pivot Gaussian elimination) for the
+    // plate benchmark. `fixed` marks DOFs already reduced to x_d = 0 (identity
+    // rows); the solver operates on the full system and returns the solution.
+    fn solve_dense(a: &mut [Vec<f64>], rhs: &[f64], _fixed: &[bool]) -> Vec<f64> {
+        let n = rhs.len();
+        let mut m = vec![vec![0.0; n + 1]; n];
+        for i in 0..n {
+            for j in 0..n {
+                m[i][j] = a[i][j];
+            }
+            m[i][n] = rhs[i];
+        }
+        for col in 0..n {
+            let mut piv = col;
+            let mut best = m[col][col].abs();
+            for r in (col + 1)..n {
+                if m[r][col].abs() > best {
+                    best = m[r][col].abs();
+                    piv = r;
+                }
+            }
+            if best < 1e-14 {
+                continue; // singular row (reduced DOF) → leave as-is
+            }
+            m.swap(col, piv);
+            let d = m[col][col];
+            for j in col..=n {
+                m[col][j] /= d;
+            }
+            for r in 0..n {
+                if r != col {
+                    let f = m[r][col];
+                    for j in col..=n {
+                        m[r][j] -= f * m[col][j];
+                    }
+                }
+            }
+        }
+        (0..n).map(|i| m[i][n]).collect()
     }
 }

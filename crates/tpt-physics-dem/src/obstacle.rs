@@ -14,9 +14,10 @@
 
 use crate::contact::restitution_to_zeta;
 use crate::particle::Particle;
+use serde::{Deserialize, Serialize};
 
 /// A fixed, immovable boundary that particles bounce off / settle against.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Obstacle {
     /// A capped cylinder. `center` is the midpoint of the axis segment,
     /// `axis` a unit direction, `radius` the cylinder radius, and

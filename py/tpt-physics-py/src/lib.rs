@@ -1,0 +1,80 @@
+//! Python bindings for `tpt-physics` (thin PyO3 layer over the DEM [`World`]
+//! and the FEA declarative [`ProblemSpec`]).
+//!
+//! Built with `maturin develop` / `maturin build` from this directory. The
+//! crate is intentionally *outside* the Rust workspace (`exclude`d in the root
+//! `Cargo.toml`) so the default `cargo build --workspace` does not require
+//! Python development headers.
+
+use pyo3::prelude::*;
+use tpt_physics_core::MaterialRegistry;
+use tpt_physics_dem::particle::Particle;
+use tpt_physics_dem::world::World;
+
+/// A Python-facing granular world. Wraps [`tpt_physics_dem::world::World`].
+#[pyclass]
+struct DemWorld {
+    inner: World,
+}
+
+#[pymethods]
+impl DemWorld {
+    /// Create an empty world with the given time step (s).
+    #[new]
+    fn new(dt: f64) -> Self {
+        DemWorld {
+            inner: World::new(Vec::new(), dt),
+        }
+    }
+
+    /// Add a spherical particle at `(x, y, z)` with radius `r` and `density`.
+    fn add_particle(&mut self, x: f64, y: f64, z: f64, r: f64, density: f64) {
+        self.inner
+            .particles
+            .push(Particle::new([x, y, z], [0.0; 3], r, density));
+    }
+
+    /// Advance the simulation by one time step.
+    fn step(&mut self) {
+        self.inner.step();
+    }
+
+    /// Total kinetic energy of the system (J).
+    fn kinetic_energy(&self) -> f64 {
+        self.inner.kinetic_energy()
+    }
+
+    /// Flattened `[x0, y0, z0, x1, y1, z1, ...]` particle positions.
+    fn positions(&self) -> Vec<f64> {
+        let mut out = Vec::with_capacity(self.inner.particles.len() * 3);
+        for p in &self.inner.particles {
+            out.extend_from_slice(&p.position);
+        }
+        out
+    }
+
+    /// Number of particles.
+    fn n_particles(&self) -> usize {
+        self.inner.particles.len()
+    }
+}
+
+/// Solve a declarative FEA problem from a JSON string and return the free-top
+/// settlement (m). See `tpt_physics_fea::spec::ProblemSpec`.
+#[pyfunction]
+fn solve_fea(json: &str) -> PyResult<f64> {
+    let spec = tpt_physics_fea::spec::ProblemSpec::from_json(json)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+    let solved = spec
+        .solve(&MaterialRegistry::new())
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+    Ok(solved.free_top_settlement_y)
+}
+
+/// The `tpt_physics` Python module.
+#[pymodule]
+fn tpt_physics_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<DemWorld>()?;
+    m.add_function(wrap_pyfunction!(solve_fea, m)?)?;
+    Ok(())
+}

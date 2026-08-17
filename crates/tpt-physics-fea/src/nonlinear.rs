@@ -31,11 +31,20 @@ fn mm(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
     c
 }
 
-/// 3×3 inverse; panics on singular.
+/// 3×3 inverse.
+///
+/// Panics with a descriptive message on a (near-)singular matrix — a
+/// degenerate or inverted element — rather than silently producing
+/// `inf`/`NaN`. `inv3` is only ever called on *reference* coordinates here,
+/// which must be valid for a real element.
 fn inv3(m: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
     let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    assert!(
+        det.is_finite() && det.abs() >= 1e-12,
+        "inv3: degenerate/inverted element (det = {det:?})"
+    );
     let inv = 1.0 / det;
     [
         [

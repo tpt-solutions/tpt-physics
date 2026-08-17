@@ -1,9 +1,9 @@
-//! Benchmark: DEM parallel stepper throughput.
+//! Criterion benchmark harness for the DEM parallel stepper.
 //!
-//! Times [`World::step_par`] (the `rayon` CPU-acceleration path) on 10k and
-//! 100k-particle beds and reports particles processed per second, demonstrating
-//! the scale at which the hardware-dispatch API would route to a GPU.
+//! Replaces the old `eprintln!`-timing example with a proper `criterion`
+//! harness (run `cargo bench -p tpt-physics-dem` for long-term tracking).
 
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use tpt_physics_dem::particle::Particle;
 use tpt_physics_dem::world::World;
 
@@ -24,23 +24,19 @@ fn make(n: usize) -> World {
     w
 }
 
-fn main() {
+fn bench_step_par(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dem_step_par");
     for &n in &[10_000usize, 100_000usize] {
-        let mut world = make(n);
-        let steps = 20;
-        let t0 = std::time::Instant::now();
-        for _ in 0..steps {
-            world.step_par();
-        }
-        let elapsed = t0.elapsed();
-        let per_step = elapsed / steps as u32;
-        let rate = n as f64 / per_step.as_secs_f64();
-        println!(
-            "{:>7} particles: {:>8.2?}/step  =>  {:.0} particles/s",
-            n, per_step, rate
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+            let mut world = make(n);
+            b.iter(|| world.step_par());
+        });
     }
+    group.finish();
 }
+
+criterion_group!(benches, bench_step_par);
+criterion_main!(benches);
 
 struct Lcg(u64);
 impl Lcg {

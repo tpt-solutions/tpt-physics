@@ -59,6 +59,12 @@ pub struct Lbm2D {
 
 impl Lbm2D {
     /// Construct an `nx × ny` lattice with relaxation time `tau`.
+    ///
+    /// ```
+    /// use tpt_physics_cfd::Lbm2D;
+    /// let mut lbm = Lbm2D::new(24, 24, 0.53);
+    /// lbm.step([0.0, 0.0]); // one collision+stream step
+    /// ```
     pub fn new(nx: usize, ny: usize, tau: f64) -> Self {
         assert!(nx > 2 && ny > 1, "lattice must be at least 3x2");
         assert!(tau > 0.5, "tau must exceed 0.5 for stability");
@@ -230,10 +236,19 @@ impl Lbm2D {
                                     // Entering from the west inlet.
                                     D2Q9::equilibrium(1.0, [u, 0.0])[k]
                                 } else {
-                                    // Leaving east: zero-gradient copy of the
-                                    // neighbour column.
+                                    // East open (outflow) boundary: a non-
+                                    // reflective convective outlet. The macroscopic
+                                    // state is taken zero-gradient from the last
+                                    // interior column and reconstructed to
+                                    // equilibrium, so pressure/velocity waves leave
+                                    // the domain instead of reflecting back (this
+                                    // replaces the crude raw copy of the neighbour
+                                    // column).
                                     let c = (nx - 2) as usize;
-                                    f_prev[iy * nx + c][k]
+                                    let ci = iy * nx + c;
+                                    let rho_out = self.rho[ci];
+                                    let u_out = [self.ux[ci], self.uy[ci]];
+                                    D2Q9::equilibrium(rho_out, u_out)[k]
                                 }
                             }
                         }

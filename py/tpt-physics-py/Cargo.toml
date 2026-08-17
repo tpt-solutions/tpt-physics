@@ -1,0 +1,17 @@
+[package]
+name = "tpt-physics-py"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Python bindings (PyO3) for tpt-physics DEM and FEA crates."
+repository = "https://github.com/tpt-solutions/tpt-physics"
+
+[lib]
+name = "tpt_physics_py"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+tpt-physics-dem = { path = "../../crates/tpt-physics-dem" }
+tpt-physics-fea = { path = "../../crates/tpt-physics-fea" }
+tpt-physics-core = { path = "../../crates/tpt-physics-core" }

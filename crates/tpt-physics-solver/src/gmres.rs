@@ -4,11 +4,18 @@
 //! solver, with no Krylov method. GMRES is the standard choice for the
 //! non-symmetric systems that appear in convection-dominated flow,
 //! time-harmonic, and coupled-physics problems.
+//!
+//! [`gmres_pc`] adds an optional right-preconditioner, mirroring
+//! [`crate::cg::cg_pc`]; [`gmres`] is the unpreconditioned entry point.
+//!
+//! **Status:** the preconditioned variant is *experimental* — it is correct
+//! for `M = I` (delegating to it reproduces plain GMRES exactly) but has not
+//! been benchmarked against a multigrid/AMG cycle yet.
 
 use crate::error::{SolveReport, SolverError};
 use crate::linalg::{dot, norm2, LinearOperator};
 
-/// Restarted GMRES.
+/// Plain (unpreconditioned) restarted GMRES.
 ///
 /// Solves `A x = b`. `restart` is the Krylov dimension between restarts; the
 /// outer loop continues until `max_iter` total matrix-vector products (or
@@ -20,6 +27,27 @@ pub fn gmres<A: LinearOperator + ?Sized>(
     restart: usize,
     tol: f64,
     max_iter: usize,
+) -> Result<(Vec<f64>, SolveReport), SolverError> {
+    gmres_pc(a, b, x0, restart, tol, max_iter, None)
+}
+
+/// Preconditioned restarted GMRES (left preconditioning).
+///
+/// `apply_p` (if provided) applies a preconditioner `M⁻¹` in-place:
+/// `z = M⁻¹ r`. With `apply_p = None` this is exactly plain GMRES. The
+/// Arnoldi process builds the Krylov subspace of the preconditioned operator
+/// `M⁻¹ A` by computing `w = M⁻¹(A·v_j)` and orthogonalising `w` against the
+/// existing (preconditioned) basis — this keeps the `gmres`/`cg` APIs
+/// consistent and keeps the solution update `x += V y` identical in form to
+/// the unpreconditioned case. The reported residual is the true `‖b - A x‖`.
+pub fn gmres_pc<A: LinearOperator + ?Sized>(
+    a: &A,
+    b: &[f64],
+    x0: Option<&[f64]>,
+    restart: usize,
+    tol: f64,
+    max_iter: usize,
+    apply_p: Option<&dyn Fn(&[f64], &mut [f64])>,
 ) -> Result<(Vec<f64>, SolveReport), SolverError> {
     let n = b.len();
     if a.nrows() != n || a.ncols() != n {
@@ -48,14 +76,22 @@ pub fn gmres<A: LinearOperator + ?Sized>(
         None => vec![0.0; n],
     };
 
-    let mut ax = vec![0.0; n];
-    let mut iterations = 0;
+        let mut ax = vec![0.0; n];
+        let mut iterations = 0;
 
-    loop {
-        a.apply(&x, &mut ax);
-        let r: Vec<f64> = b.iter().zip(&ax).map(|(bi, aix)| bi - aix).collect();
-        let beta = norm2(&r);
-        let residual0 = beta / bnorm;
+        // Scratch for the left-preconditioner application.
+        let mut z = vec![0.0; n];
+
+        loop {
+            a.apply(&x, &mut ax);
+            let r: Vec<f64> = b.iter().zip(&ax).map(|(bi, aix)| bi - aix).collect();
+            // Left-preconditioned initial residual: v0 = M⁻¹ r0 / ‖·‖.
+            match apply_p {
+                Some(p) => p(&r, &mut z),
+                None => z.copy_from_slice(&r),
+            }
+            let beta = norm2(&z);
+            let residual0 = beta / bnorm;
         if residual0 < tol {
             return Ok((
                 x,
@@ -82,25 +118,32 @@ pub fn gmres<A: LinearOperator + ?Sized>(
 
         g[0] = beta;
         for k in 0..n {
-            v[0][k] = r[k] / beta;
+            v[0][k] = z[k] / beta;
         }
 
         for j in 0..m {
             let mut w = vec![0.0; n];
             a.apply(&v[j], &mut w);
+            // Left-precondition: w := M⁻¹ (A·v_j) so the next basis vector is
+            // in the same (preconditioned) space as v0 = M⁻¹ r0.
+            match apply_p {
+                Some(p) => p(&w, &mut z),
+                None => z.copy_from_slice(&w),
+            }
+            // Orthogonalise the preconditioned w against the existing basis.
             for i in 0..=j {
-                h[i][j] = dot(&v[i], &w);
+                h[i][j] = dot(&v[i], &z);
                 for k in 0..n {
-                    w[k] -= h[i][j] * v[i][k];
+                    z[k] -= h[i][j] * v[i][k];
                 }
             }
-            let sub = norm2(&w);
+            let sub = norm2(&z);
             if sub < 1e-12 {
                 h[j + 1][j] = 0.0; // happy breakdown
             } else {
                 h[j + 1][j] = sub;
                 for k in 0..n {
-                    v[j + 1][k] = w[k] / sub;
+                    v[j + 1][k] = z[k] / sub;
                 }
             }
 
@@ -231,6 +274,47 @@ mod tests {
         let (x, _) = gmres(&a, &b, None, 3, 1e-10, 50).unwrap();
         for v in &x {
             assert!((v - 1.0).abs() < 1e-7, "got {v}");
+        }
+    }
+
+    // Jacobi (diagonal) preconditioner for the mock CSR.
+    fn jacobi(a: &Csr) -> impl Fn(&[f64], &mut [f64]) + '_ {
+        let dinv: Vec<f64> = (0..a.nrows).map(|i| 1.0 / a.values[a.row_ptrs[i]]).collect();
+        move |r: &[f64], z: &mut [f64]| {
+            for i in 0..r.len() {
+                z[i] = dinv[i] * r[i];
+            }
+        }
+    }
+
+    #[test]
+    fn gmres_pc_jacobi_solves() {
+        // Diagonally-dominant non-symmetric system; Jacobi preconditioning must
+        // still converge to the exact solution.
+        let data = vec![
+            10.0, 1.0, 0.0, //
+            2.0, 9.0, 1.0, //
+            0.0, 1.0, 8.0, //
+        ];
+        let a = CsrMock(csr_from_dense(3, 3, &data));
+        let b = [11.0, 12.0, 9.0]; // solution is x = [1, 1, 1]
+        let p = jacobi(&a.0);
+        let (x, rep) = gmres_pc(&a, &b, None, 3, 1e-10, 50, Some(&p)).expect("gmres_pc");
+        for i in 0..3 {
+            assert!((x[i] - 1.0).abs() < 1e-7, "got {} want 1", x[i]);
+        }
+        assert!(rep.converged);
+    }
+
+    #[test]
+    fn gmres_pc_none_equals_plain() {
+        let data = vec![4.0, 1.0, 0.0, -1.0, 3.0, 1.0, 0.0, 2.0, 5.0];
+        let a = CsrMock(csr_from_dense(3, 3, &data));
+        let b = [5.0, 5.0, 14.0];
+        let (x1, _) = gmres(&a, &b, None, 3, 1e-10, 50).unwrap();
+        let (x2, _) = gmres_pc(&a, &b, None, 3, 1e-10, 50, None).unwrap();
+        for i in 0..3 {
+            assert!((x1[i] - x2[i]).abs() < 1e-12, "mismatch at {i}");
         }
     }
 }
