@@ -72,9 +72,9 @@ fn bmatrix(nodes: &[[f64; 2]; 4], xi: f64, eta: f64) -> ([[f64; 8]; 6], f64) {
         [-j[1][0] / det, j[0][0] / det],
     ];
     let mut b = [[0.0_f64; 8]; 6];
-    for k in 0..4 {
-        let dx = inv[0][0] * d[k][0] + inv[0][1] * d[k][1];
-        let dy = inv[1][0] * d[k][0] + inv[1][1] * d[k][1];
+    for (k, d_k) in d.iter().enumerate() {
+        let dx = inv[0][0] * d_k[0] + inv[0][1] * d_k[1];
+        let dy = inv[1][0] * d_k[0] + inv[1][1] * d_k[1];
         let c = k * 2;
         b[0][c] = dx; // εxx
         b[1][c + 1] = dy; // εyy
@@ -91,21 +91,22 @@ fn solve(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
     for i in 0..n {
         let mut piv = i;
         let mut best = a[i][i].abs();
-        for r in (i + 1)..n {
-            if a[r][i].abs() > best {
-                best = a[r][i].abs();
+        for (r, a_r) in a.iter().enumerate().skip(i + 1) {
+            if a_r[i].abs() > best {
+                best = a_r[i].abs();
                 piv = r;
             }
         }
         a.swap(i, piv);
         b.swap(i, piv);
-        for r in (i + 1)..n {
-            let f = a[r][i] / a[i][i];
-            for c in i..n {
-                a[r][c] -= f * a[i][c];
+            for r in (i + 1)..n {
+                let f = a[r][i] / a[i][i];
+                #[allow(clippy::needless_range_loop)]
+                for c in i..n {
+                    a[r][c] -= f * a[i][c];
+                }
+                b[r] -= f * b[i];
             }
-            b[r] -= f * b[i];
-        }
     }
     let mut x = vec![0.0; n];
     for i in (0..n).rev() {
@@ -286,8 +287,8 @@ fn cooks_membrane(sigma_y0: f64, hard: f64) -> f64 {
                 let (sig, st) = mat.return_map(&trial, &state_prev[gi]);
                 // Internal force contribution B^T σ det.
                 for a in 0..6 {
-                    for p in 0..8 {
-                        let val = bmat[a][p] * sig[a] * det;
+                    for (p, &bmat_ap) in bmat[a].iter().enumerate() {
+                        let val = bmat_ap * sig[a] * det;
                         if val == 0.0 {
                             continue;
                         }

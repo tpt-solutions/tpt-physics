@@ -61,7 +61,7 @@ impl PlasticMaterial {
         PlasticMaterial {
             young,
             poisson,
-            sigma_y0: sigma_y0,
+            sigma_y0,
             hard,
         }
     }
@@ -161,8 +161,8 @@ impl PlasticMaterial {
         }
 
         let mut state = *prev;
-        for i in 0..6 {
-            state.plastic_strain[i] += deps_p[i];
+        for (ps_i, &dp_i) in state.plastic_strain.iter_mut().zip(deps_p.iter()) {
+            *ps_i += dp_i;
         }
         state.eq_plastic_strain += dg;
         (sigma, state)

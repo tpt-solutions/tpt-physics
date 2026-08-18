@@ -40,3 +40,14 @@ setup:
 
 # End-to-end check used by CI.
 ci: fmt-check clint deny build test
+
+# Build the WebAssembly web playground (DEM + CFD) and its JS bindings.
+# Output lands in `crates/tpt-physics-wasm/www/pkg`; serve `www/` with any
+# static file server (e.g. `python -m http.server`) to use the playground.
+# Requires `wasm-pack` (or `cargo` + `wasm-bindgen-cli`) on PATH.
+wasm:
+    pwsh scripts/build_wasm.ps1
+
+# Serve the WebGL playground locally (after `just wasm`).
+serve-wasm:
+    pwsh -Command "cd crates/tpt-physics-wasm/www; python -m http.server 8080"

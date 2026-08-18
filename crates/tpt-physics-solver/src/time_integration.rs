@@ -107,6 +107,7 @@ impl NewmarkBeta {
     /// operators (all `n×n`). `u0`, `v0` are the initial displacement and
     /// velocity; `a0` is computed from the initial equilibrium
     /// `a0 = M⁻¹ (f0 - C v0 - K u0)` if `None` is supplied.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         m: Box<dyn LinearOperator>,
         c: Box<dyn LinearOperator>,
@@ -182,13 +183,13 @@ impl NewmarkBeta {
         let mut mc = vec![0.0; self.n];
         {
             let mut t1 = vec![0.0; self.n];
-            for i in 0..self.n {
-                t1[i] = a0 * self.u[i] + a2 * self.v[i] + a3 * self.a[i];
+            for (i, t1_i) in t1.iter_mut().enumerate() {
+                *t1_i = a0 * self.u[i] + a2 * self.v[i] + a3 * self.a[i];
             }
             self.m.apply(&t1, &mut mu);
             let mut t2 = vec![0.0; self.n];
-            for i in 0..self.n {
-                t2[i] = a1 * self.u[i] + a4 * self.v[i] + a5 * self.a[i];
+            for (i, t2_i) in t2.iter_mut().enumerate() {
+                *t2_i = a1 * self.u[i] + a4 * self.v[i] + a5 * self.a[i];
             }
             self.c.apply(&t2, &mut mc);
         }
@@ -240,7 +241,7 @@ mod tests {
         let dt = 0.01;
         for _ in 0..628 {
             // ~ one period
-            let (nt, ny) = rk4(&f, t, &y, dt);
+            let (nt, ny) = rk4(f, t, &y, dt);
             t = nt;
             y = ny;
         }

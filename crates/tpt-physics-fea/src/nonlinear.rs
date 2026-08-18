@@ -398,8 +398,8 @@ mod tests {
         let (la, mu) = lame(200e9, 0.3);
         let k = tet4_tangent(&r, &r, la, mu).unwrap();
         let mut u = [0.0; 12];
-        for i in 0..12 {
-            u[i] = (i as f64 * 0.013 - 0.05) * 1e-3; // ~1e-4 strain scale
+        for (i, u_i) in u.iter_mut().enumerate() {
+            *u_i = (i as f64 * 0.013 - 0.05) * 1e-3; // ~1e-4 strain scale
         }
         let mut cur = r;
         for a in 0..4 {

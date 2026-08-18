@@ -15,6 +15,12 @@
 use crate::error::{SolveReport, SolverError};
 use crate::linalg::{dot, norm2, LinearOperator};
 
+/// Optional in-place preconditioner `z = M⁻¹ r`.
+type Preconditioner<'a> = Option<&'a dyn Fn(&[f64], &mut [f64])>;
+
+/// Optional initial guess `x0` (starts from the zero vector when `None`).
+type MaybeInitial<'a> = Option<&'a [f64]>;
+
 /// Plain (unpreconditioned) restarted GMRES.
 ///
 /// Solves `A x = b`. `restart` is the Krylov dimension between restarts; the
@@ -43,11 +49,11 @@ pub fn gmres<A: LinearOperator + ?Sized>(
 pub fn gmres_pc<A: LinearOperator + ?Sized>(
     a: &A,
     b: &[f64],
-    x0: Option<&[f64]>,
+    x0: MaybeInitial<'_>,
     restart: usize,
     tol: f64,
     max_iter: usize,
-    apply_p: Option<&dyn Fn(&[f64], &mut [f64])>,
+    apply_p: Preconditioner<'_>,
 ) -> Result<(Vec<f64>, SolveReport), SolverError> {
     let n = b.len();
     if a.nrows() != n || a.ncols() != n {
@@ -300,8 +306,8 @@ mod tests {
         let b = [11.0, 12.0, 9.0]; // solution is x = [1, 1, 1]
         let p = jacobi(&a.0);
         let (x, rep) = gmres_pc(&a, &b, None, 3, 1e-10, 50, Some(&p)).expect("gmres_pc");
-        for i in 0..3 {
-            assert!((x[i] - 1.0).abs() < 1e-7, "got {} want 1", x[i]);
+        for &xi in &x {
+            assert!((xi - 1.0).abs() < 1e-7, "got {} want 1", xi);
         }
         assert!(rep.converged);
     }

@@ -47,10 +47,10 @@ impl D2Q9 {
     pub fn equilibrium(rho: f64, u: [f64; 2]) -> [f64; 9] {
         let u2 = u[0] * u[0] + u[1] * u[1];
         let mut feq = [0.0_f64; 9];
-        for i in 0..9 {
+        for (i, slot) in feq.iter_mut().enumerate() {
             let (ex, ey) = D2Q9::E[i];
             let eu = ex as f64 * u[0] + ey as f64 * u[1];
-            feq[i] = D2Q9::W[i] * rho * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * u2);
+            *slot = D2Q9::W[i] * rho * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * u2);
         }
         feq
     }

@@ -9,6 +9,12 @@
 use crate::error::{SolveReport, SolverError};
 use crate::linalg::{dot, norm2, LinearOperator};
 
+/// Optional in-place preconditioner `z = M⁻¹ r`.
+type Preconditioner<'a> = Option<&'a dyn Fn(&[f64], &mut [f64])>;
+
+/// Optional initial guess `x0` (starts from the zero vector when `None`).
+type MaybeInitial<'a> = Option<&'a [f64]>;
+
 /// Plain (unpreconditioned) Conjugate Gradient.
 ///
 /// Solves `A x = b` for SPD `A`. `x0`, if `None`, starts from the zero vector.
@@ -39,10 +45,10 @@ pub fn cg<A: LinearOperator + ?Sized>(
 pub fn cg_pc<A: LinearOperator + ?Sized>(
     a: &A,
     b: &[f64],
-    x0: Option<&[f64]>,
+    x0: MaybeInitial<'_>,
     tol: f64,
     max_iter: usize,
-    apply_p: Option<&dyn Fn(&[f64], &mut [f64])>,
+    apply_p: Preconditioner<'_>,
 ) -> Result<(Vec<f64>, SolveReport), SolverError> {
     let n = b.len();
     if a.nrows() != n || a.ncols() != n {

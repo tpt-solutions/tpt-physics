@@ -15,7 +15,7 @@
 //! # Example
 //!
 //! ```
-//! use tpt_physics_ai::{DifferentiablePlant, GymEnv, GymWrapper, HarmonicOscillator};
+//! use tpt_physics_ai::{DifferentiablePlant, GymWrapper, HarmonicOscillator};
 //!
 //! let plant = HarmonicOscillator::new();
 //! let mut env = GymWrapper::new(plant, vec![1.0, 0.0], 5);

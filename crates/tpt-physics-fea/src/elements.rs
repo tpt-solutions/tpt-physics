@@ -169,17 +169,17 @@ pub fn tet10_stiffness(nodes: &[[f64; 3]; 10], e: f64, nu: f64) -> Vec<f64> {
 
         // B matrix (6 × 30).
         let mut b = [[0.0_f64; 30]; 6];
-        for a in 0..10 {
+        for (a, gp_a) in gp.iter().enumerate() {
             let i = 3 * a;
-            b[0][i] = gp[a][0];
-            b[1][i + 1] = gp[a][1];
-            b[2][i + 2] = gp[a][2];
-            b[3][i] = gp[a][1];
-            b[3][i + 1] = gp[a][0];
-            b[4][i + 1] = gp[a][2];
-            b[4][i + 2] = gp[a][1];
-            b[5][i] = gp[a][2];
-            b[5][i + 2] = gp[a][0];
+            b[0][i] = gp_a[0];
+            b[1][i + 1] = gp_a[1];
+            b[2][i + 2] = gp_a[2];
+            b[3][i] = gp_a[1];
+            b[3][i + 1] = gp_a[0];
+            b[4][i + 1] = gp_a[2];
+            b[4][i + 2] = gp_a[1];
+            b[5][i] = gp_a[2];
+            b[5][i + 2] = gp_a[0];
         }
 
         // K += Bᵀ D B |J| w.
@@ -214,6 +214,7 @@ pub fn tet10_stiffness(nodes: &[[f64; 3]; 10], e: f64, nu: f64) -> Vec<f64> {
 ///
 /// Returns a row-major `12×12` buffer (`length 144`). Local DOFs per node are
 /// `[u, v, w, θx, θy, θz]`.
+#[allow(clippy::too_many_arguments)]
 pub fn beam3d_global_stiffness(
     n0: [f64; 3],
     n1: [f64; 3],
@@ -240,7 +241,7 @@ pub fn beam3d_global_stiffness(
 
     let mut r = [0.0; 9];
     for p in 0..3 {
-        r[p * 3 + 0] = ex[p];
+        r[p * 3] = ex[p];
         r[p * 3 + 1] = ey[p];
         r[p * 3 + 2] = ez[p];
     }
@@ -259,8 +260,8 @@ pub fn beam3d_global_stiffness(
     kl[9 * 12 + 3] = -gj_l;
     kl[9 * 12 + 9] = gj_l;
     // Bending blocks.
-    let _ = add_beam_bending(&mut kl, &[1, 5, 7, 11], e * iz, l); // v-θz (about z)
-    let _ = add_beam_bending(&mut kl, &[2, 4, 8, 10], e * iy, l); // w-θy (about y)
+    add_beam_bending(&mut kl, &[1, 5, 7, 11], e * iz, l); // v-θz (about z)
+    add_beam_bending(&mut kl, &[2, 4, 8, 10], e * iy, l); // w-θy (about y)
 
     // T = block-diagonal(R) (12×12). Kg = Tᵀ Kl T.
     let mut t = [0.0; 144];
@@ -487,8 +488,8 @@ pub fn shell4_stiffness(
         for i in 0..12 {
             for j in 0..12 {
                 let mut s = 0.0;
-                for s1 in 0..2 {
-                    s += bs[s1][i] * gs * bs[s1][j];
+                for bs_s1 in &bs {
+                    s += bs_s1[i] * gs * bs_s1[j];
                 }
                 k[i * 12 + j] += s * detj * w;
             }
@@ -895,10 +896,10 @@ mod tests {
         let mut rhs = f.clone();
         for d in 0..ndof {
             if fixed[d] {
-                for j in 0..ndof {
-                    amat[d][j] = 0.0;
-                    amat[j][d] = 0.0;
+                for amat_row in amat.iter_mut() {
+                    amat_row[d] = 0.0;
                 }
+                amat[d].fill(0.0);
                 amat[d][d] = 1.0;
                 rhs[d] = 0.0;
             }
@@ -1015,10 +1016,10 @@ mod tests {
         let mut rhs = f.clone();
         for d in 0..ndof {
             if fixed[d] {
-                for j in 0..ndof {
-                    amat[d][j] = 0.0;
-                    amat[j][d] = 0.0;
+                for amat_row in amat.iter_mut() {
+                    amat_row[d] = 0.0;
                 }
+                amat[d].fill(0.0);
                 amat[d][d] = 1.0;
                 rhs[d] = 0.0;
             }
@@ -1120,10 +1121,10 @@ mod tests {
         let mut rhs = f.clone();
         for d in 0..ndof {
             if fixed[d] {
-                for j in 0..ndof {
-                    amat[d][j] = 0.0;
-                    amat[j][d] = 0.0;
+                for amat_row in amat.iter_mut() {
+                    amat_row[d] = 0.0;
                 }
+                amat[d].fill(0.0);
                 amat[d][d] = 1.0;
                 rhs[d] = 0.0;
             }
@@ -1160,9 +1161,9 @@ mod tests {
         for col in 0..6 {
             let mut piv = col;
             let mut best = m[col][col].abs();
-            for r in (col + 1)..6 {
-                if m[r][col].abs() > best {
-                    best = m[r][col].abs();
+            for (r, m_r) in m.iter().enumerate().skip(col + 1) {
+                if m_r[col].abs() > best {
+                    best = m_r[col].abs();
                     piv = r;
                 }
             }
@@ -1171,12 +1172,13 @@ mod tests {
             }
             m.swap(col, piv);
             let d = m[col][col];
-            for j in col..7 {
-                m[col][j] /= d;
+            for m_cj in m[col][col..7].iter_mut() {
+                *m_cj /= d;
             }
             for r in 0..6 {
                 if r != col {
                     let f = m[r][col];
+                    #[allow(clippy::needless_range_loop)]
                     for j in col..7 {
                         m[r][j] -= f * m[col][j];
                     }
@@ -1204,9 +1206,9 @@ mod tests {
         for col in 0..n {
             let mut piv = col;
             let mut best = m[col][col].abs();
-            for r in (col + 1)..n {
-                if m[r][col].abs() > best {
-                    best = m[r][col].abs();
+            for (r, m_r) in m.iter().enumerate().skip(col + 1) {
+                if m_r[col].abs() > best {
+                    best = m_r[col].abs();
                     piv = r;
                 }
             }
@@ -1215,12 +1217,13 @@ mod tests {
             }
             m.swap(col, piv);
             let d = m[col][col];
-            for j in col..=n {
-                m[col][j] /= d;
+            for m_cj in m[col][col..=n].iter_mut() {
+                *m_cj /= d;
             }
             for r in 0..n {
                 if r != col {
                     let f = m[r][col];
+                    #[allow(clippy::needless_range_loop)]
                     for j in col..=n {
                         m[r][j] -= f * m[col][j];
                     }

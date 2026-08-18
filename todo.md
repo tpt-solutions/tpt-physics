@@ -277,9 +277,17 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
 ### P3 — Innovation
   - [x] `[ADOPT]` Build gradient-based / topology design optimization on the
       `tpt-math-autodiff` differentiable path (`tpt-physics-ai`).
-- [ ] `[ADOPT]` WASM web playground (load mesh → run CFD/DEM → WebGL view).
-- [ ] `[ADOPT]` Uncertainty quantification (Monte-Carlo over materials via
-      `proptest`).
+- [x] `[ADOPT]` WASM web playground (load mesh → run CFD/DEM → WebGL view) —
+      `crates/tpt-physics-wasm` exposes the DEM `World` and CFD `Lbm2D` solvers
+      to JS via `wasm-bindgen` (JSON scene in → flat `Float32Array` state out),
+      with a WebGL frontend in `crates/tpt-physics-wasm/www/` (DEM point-sprite
+      spheres coloured by speed, CFD speed-field texture + velocity arrows).
+      Build with `just wasm` (needs `wasm-pack`/`wasm-bindgen-cli`), serve `www/`.
+- [x] `[ADOPT]` Uncertainty quantification (Monte-Carlo over materials via
+      `proptest`) — `crates/tpt-physics-core/src/uq.rs` (feature `uq`) samples
+      materials from a relative tolerance band via `proptest`, sweeps a scalar
+      response, and returns mean/std/percentiles/CoV; wired into `core`,
+      re-exported, and demonstrated by `examples/uq_cantilever.rs`.
 
 ### P2 — Automation `[AUTO]`
 - [x] Add GitHub Actions: build+test (stable + nightly), `cargo clippy

@@ -104,6 +104,7 @@ impl Resolution {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn cylinder(
         p: &Particle,
         center: &[f64; 3],
@@ -128,6 +129,7 @@ impl Resolution {
         Some(contact(p, n, pen, e_star, mu, restitution))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn plane(
         p: &Particle,
         point: &[f64; 3],
@@ -159,6 +161,7 @@ impl Resolution {
 
 /// Build the contact force + de-penetration for a sphere against a rigid
 /// surface with unit outward normal `n` and penetration depth `pen`.
+#[allow(clippy::too_many_arguments)]
 fn contact(
     p: &Particle,
     n: [f64; 3],

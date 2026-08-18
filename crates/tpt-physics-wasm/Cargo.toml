@@ -23,7 +23,3 @@ tpt-physics-cfd = { path = "../tpt-physics-cfd" }
 
 [features]
 default = []
-
-[profile.release]
-opt-level = 3
-lto = true

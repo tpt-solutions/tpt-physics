@@ -28,6 +28,10 @@ proptest = { workspace = true, optional = true }
 default = []
 uq = ["dep:proptest"]
 
+[[example]]
+name = "uq_cantilever"
+required-features = ["uq"]
+
 [dev-dependencies]
 proptest = { workspace = true }
 

@@ -28,12 +28,12 @@ impl LinearOperator for Csr {
     fn apply(&self, x: &[f64], y: &mut [f64]) {
         debug_assert_eq!(x.len(), self.ncols);
         debug_assert_eq!(y.len(), self.nrows);
-        for r in 0..self.nrows {
+        for (r, y_r) in y.iter_mut().enumerate() {
             let mut s = 0.0;
             for idx in self.row_ptrs[r]..self.row_ptrs[r + 1] {
                 s += self.values[idx] * x[self.col_ind[idx]];
             }
-            y[r] = s;
+            *y_r = s;
         }
     }
 }
@@ -78,13 +78,14 @@ impl LinearOperator for DenseMat {
         self.ncols
     }
     fn apply(&self, x: &[f64], y: &mut [f64]) {
-        for i in 0..self.nrows {
-            let mut s = 0.0;
+        for (i, y_i) in y.iter_mut().enumerate() {
             let base = i * self.ncols;
-            for j in 0..self.ncols {
-                s += self.data[base + j] * x[j];
-            }
-            y[i] = s;
+            let s: f64 = self.data[base..base + self.ncols]
+                .iter()
+                .zip(x)
+                .map(|(a, b)| a * b)
+                .sum();
+            *y_i = s;
         }
     }
 }

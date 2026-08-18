@@ -263,13 +263,13 @@ struct CfdScene {
     nx: usize,
     ny: usize,
     tau: f64,
-    #[serde(default)]
+    #[serde(default = "default_x_boundary")]
     x_boundary: XBoundarySpec,
     #[serde(default)]
     inlet_velocity: f64,
     #[serde(default)]
     force: [f64; 2],
-    #[serde(default)]
+    #[serde(default = "default_walls")]
     walls: WallSpec,
     #[serde(default)]
     circles: Vec<CircleSpec>,
@@ -389,6 +389,12 @@ impl CfdSimulation {
 
 fn default_gravity() -> [f64; 3] {
     [0.0, -9.81, 0.0]
+}
+fn default_x_boundary() -> XBoundarySpec {
+    XBoundarySpec::Periodic
+}
+fn default_walls() -> WallSpec {
+    WallSpec::None
 }
 fn default_e_star() -> f64 {
     1e9
