@@ -19,6 +19,15 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 
+# Optional: Monte-Carlo uncertainty quantification over material property
+# scatter. Gated behind the `uq` feature so consumers that don't need it pay
+# no `proptest` dependency cost.
+proptest = { workspace = true, optional = true }
+
+[features]
+default = []
+uq = ["dep:proptest"]
+
 [dev-dependencies]
 proptest = { workspace = true }
 
