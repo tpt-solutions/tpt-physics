@@ -1,0 +1,14 @@
+[package]
+name = "tpt-phys-gallery"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.84"
+license = "MIT OR Apache-2.0"
+description = "End-to-end example gallery runner for the tpt-physics workspace"
+authors = ["TPT Solutions"]
+publish = false
+
+[dependencies]
+tpt-phys-core = { path = "../tpt-phys-core" }
+tpt-phys-dem = { path = "../tpt-phys-dem" }
+tpt-phys-cfd = { path = "../tpt-phys-cfd" }

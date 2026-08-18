@@ -1,0 +1,47 @@
+# tpt-physics Specification
+
+## 1. Purpose
+A pure Rust, AI-native multiphysics and particle-based simulation framework. Focuses on Discrete Element Method (DEM), Computational Fluid Dynamics (CFD) extensions, and multiphysics coupling orchestration, complementing the FEM-based approach in `tpt-fem`.
+
+## 2. Scope & Boundaries
+- IN SCOPE: DEM, meshless CFD (SPH/LBM), Fluid-Structure Interaction (FSI), and multiphysics coupling orchestration.
+- OUT OF SCOPE: FEM-based solid/thermal mechanics (delegated to `tpt-fem`), basic rigid body dynamics (delegated to `tpt-sci-physics-rigid`).
+- DEPENDS ON: `tpt-math` (linalg, spatial, graph), `tpt-fem` (for FSI coupling interfaces), `tpt-science` (cfd-core).
+
+## 3. Crate Inventory
+
+### Core & Particle Methods
+| Crate | Domain | no_std | Description |
+|---|---|---|---|
+| `tpt-phys-core` | foundation | yes | Shared particle data structures, spatial hashing, neighbor search. |
+| `tpt-phys-dem` | granular | no | Discrete Element Method, contact detection, granular flow, cohesion. |
+| `tpt-phys-cfd` | fluid | no | Meshless CFD (SPH, Lattice Boltzmann), free-surface flows, multiphase. |
+
+### Multiphysics Coupling
+| Crate | Domain | no_std | Description |
+|---|---|---|---|
+| `tpt-phys-fsi` | multiphysics | no | Fluid-structure interaction coupling (partitioned approach, mesh mapping). |
+| `tpt-phys-thermal-struct` | multiphysics | no | Thermal expansion, thermo-mechanical stress coupling (FEM to FEM). |
+| `tpt-phys-electro-thermal` | multiphysics | no | Joule heating, resistive losses, temperature-dependent conductivity. |
+
+### Orchestration
+| Crate | Domain | no_std | Description |
+|---|---|---|---|
+| `tpt-phys-orchestrator` | meta | no | AI-native coupling layer, adaptive time-stepping, solver coordination, co-simulation API. |
+
+## 4. Design Principles
+- **Particle-Native**: DEM and SPH implementations must be highly cache-friendly and leverage SIMD where possible.
+- **Loose Coupling**: Multiphysics interfaces should allow swapping solvers (e.g., using `tpt-fem` for structure and `tpt-phys-cfd` for fluid) without tight compile-time binding.
+- **AI-Native**: The orchestrator must expose differentiable interfaces or reinforcement learning hooks for adaptive solver control.
+
+## 5. Build Order
+1. `tpt-phys-core`
+2. `tpt-phys-dem`, `tpt-phys-cfd`
+3. `tpt-phys-fsi`, `tpt-phys-thermal-struct`, `tpt-phys-electro-thermal`
+4. `tpt-phys-orchestrator`
+
+## 6. Downstream Consumption
+- `tpt-materials` uses `dem` for granular flow and powder bed simulation.
+- `tpt-earth` uses `cfd` and `dem` for debris flow and sediment transport.
+- `tpt-transportation` uses `fsi` for aerodynamics and `thermal-struct` for brake/thermal modeling.
+- `tpt-medical` uses `fsi` for blood flow in compliant arteries.

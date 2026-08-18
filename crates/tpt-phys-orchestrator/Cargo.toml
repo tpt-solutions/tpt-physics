@@ -1,0 +1,22 @@
+[package]
+name = "tpt-phys-orchestrator"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "AI-native multiphysics coupling layer: adaptive time-stepping, solver coordination, co-simulation, and RL hooks for tpt-physics."
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["multiphysics", "orchestration", "co-simulation", "reinforcement-learning", "simulation"]
+categories = ["science", "mathematics", "simulation"]
+
+[dependencies]
+tpt-sci-sim-core = { workspace = true }
+tpt-math-autodiff = { workspace = true }
+tpt-math-linalg-dense = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

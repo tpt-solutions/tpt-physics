@@ -302,3 +302,81 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
 - [ ] Add a Python (PyO3) thin binding over FEA/DEM `World`.
 - [ ] README: Quickstart, Troubleshooting (sibling deps), examples index,
       "validated vs experimental" table.
+
+## Phase 5: spec2.txt re-scope — DEM/meshless-CFD/multiphysics coupling
+
+> **2026-08-19 re-scope:** `spec2.txt` narrows this repo's charter to what
+> `tpt-fem` doesn't already own: DEM, meshless CFD (SPH/LBM), and
+> multiphysics coupling orchestration, under a `tpt-phys-*` naming
+> convention. FEM is fully delegated to `tpt-fem`; rigid-body dynamics to
+> `tpt-science`'s `tpt-sci-physics-rigid`. Same `[REUSE]/[PARTIAL]/[NEW]`
+> tagging as Phase 0-4, plus `[PORTED]` for code moved verbatim from a
+> removed crate into its new home. Full crate-by-crate rationale and overlap
+> check (confirmed clean against `tpt-fem`) is in the approved plan at
+> `C:\Users\phill\.claude\plans\i-ve-just-added-a-curried-zebra.md`.
+
+### Rename & removal
+- [x] `[REUSE]` Rename `tpt-physics-core` → `tpt-phys-core`,
+      `tpt-physics-dem` → `tpt-phys-dem`, `tpt-physics-cfd` → `tpt-phys-cfd`,
+      `tpt-physics-gallery` → `tpt-phys-gallery` (contents/tests unchanged,
+      only paths/package names updated)
+- [x] `[PORTED]` Thermal-to-structural coupling
+      (`tet4_thermal_load`/`thermal_load_vector` + the `Tet4` reference-basis
+      helper) copied from `tpt-physics-fea/src/{thermal,nonlinear}.rs` into
+      the new `crates/tpt-phys-thermal-struct/src/lib.rs`, tests intact
+- [x] `[PORTED]` `GymEnv`/`DifferentiablePlant`/`GymWrapper` +
+      `HarmonicOscillator`/`Pendulum` copied from `tpt-physics-ai/src/lib.rs`
+      into `crates/tpt-phys-orchestrator/src/rl.rs`, tests intact
+- [ ] `[REUSE]` Delete `crates/tpt-physics-fea`, `crates/tpt-physics-solver`,
+      `crates/tpt-physics-ai` now that their still-needed pieces are ported;
+      remove their `members` entries from the root `Cargo.toml`
+- [x] `[REUSE]` Drop FEA/solver/ai demos from `tpt-phys-gallery`'s
+      `main.rs`/`Cargo.toml`; gallery now covers core/dem/cfd only
+
+### New crates
+- [x] `[NEW]` Scaffold `tpt-phys-fsi` (`Cargo.toml` + `README.md`) —
+      partitioned FSI coupling between `tpt-phys-cfd` (fluid) and a
+      `tpt-fem-mesh` structural domain
+- [x] `[NEW]` `tpt-phys-fsi`: nearest-node interface mesh mapping
+      (`nearest_node_map`, tested) — the minimal building block a
+      partitioned coupling loop needs to interpolate tractions/displacements
+      between non-matching fluid/structural interface meshes
+- [ ] `[GAP]` `tpt-phys-fsi`: the actual explicit/implicit coupling-iteration
+      driver (advance fluid → map traction to structure → solve structure →
+      map displacement back to fluid → repeat/relax) is not yet implemented
+- [x] `[NEW]` Scaffold `tpt-phys-thermal-struct` (`Cargo.toml` +
+      `README.md`, ported coupling logic — see above)
+- [ ] `[NEW]` Scaffold `tpt-phys-electro-thermal` — Joule heating, resistive
+      losses, temperature-dependent conductivity. No prior art anywhere in
+      `tpt-physics`, `tpt-fem`, or `tpt-science`; build from scratch
+- [x] `[NEW]` Scaffold `tpt-phys-orchestrator` (`Cargo.toml` + `README.md`) —
+      re-exports `tpt-sci-sim-core`'s `Simulation`/`SubModel`/`Coupling`
+      (from the sibling `tpt-science` repo) as the co-simulation engine
+      rather than duplicating it, plus the ported `rl` module
+- [ ] `[GAP]` `tpt-phys-orchestrator`: `SubModel` adapters wiring
+      `tpt-phys-fsi`/`tpt-phys-thermal-struct`/`tpt-phys-electro-thermal`
+      into a `tpt_sci_sim_core::Simulation` — not yet implemented, blocks on
+      those crates having a stepping API to adapt
+
+### CFD: meshless extensions
+- [ ] `[NEW]` `tpt-phys-cfd`: native SPH solver (free-surface/multiphase per
+      spec2 §3), alongside the existing D2Q9 LBM code. `tpt-sci-cfd-core`
+      (finite-volume Navier-Stokes, listed as a spec2 dependency) does not
+      exist yet in `tpt-science` — treated as a future integration, not a
+      blocker
+
+### Workspace/tooling wiring
+- [ ] `[AUTO]` Add `tpt-sci-sim-core = { path = "../tpt-science/crates/
+      tpt-sci-sim-core" }` (and any transitive `tpt-math-*`/`tpt-sci-*` deps
+      it actually needs) to root `Cargo.toml` `[workspace.dependencies]`;
+      update `members`
+- [ ] `[AUTO]` Update `deny.toml` `[sources]` / allow-list for the new
+      `tpt-sci-sim-core` path dependency
+- [ ] `[AUTO]` Update root `README.md`, `GALLERY.md`, `docs/GALLERY.md`,
+      `scripts/run_gallery.{ps1,sh}` for the renamed/removed crates
+- [ ] `[GAP]` `py/tpt-physics-py`: currently binds `tpt-physics-fea`/`-dem`
+      directly by name — needs repointing at `tpt-phys-dem` (FEA binding
+      removed along with the crate) once the Rust-side rename lands
+- [ ] `[AUTO]` `cargo build --workspace` / `cargo test --workspace` /
+      `cargo clippy --workspace -- -D warnings` / `cargo fmt --check` /
+      `cargo deny check` all clean after the rename+scaffold

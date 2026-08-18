@@ -1,0 +1,23 @@
+[package]
+name = "tpt-phys-thermal-struct"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Thermal expansion and thermo-mechanical stress coupling (FEM to FEM) for tpt-physics."
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["thermal", "structural", "multiphysics", "coupling", "fem"]
+categories = ["science", "mathematics", "simulation"]
+
+[dependencies]
+tpt-fem-mesh = { workspace = true }
+tpt-fem-thermal = { workspace = true }
+tpt-fem-elasticity = { workspace = true }
+tpt-phys-core = { path = "../tpt-phys-core" }
+tracing = { workspace = true }
+
+[lints]
+workspace = true
