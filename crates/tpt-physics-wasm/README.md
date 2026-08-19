@@ -1,13 +1,16 @@
 # tpt-physics-wasm
 
 **WebAssembly bindings for the `tpt-physics` solvers** — a browser playground
-that runs the pure-Rust DEM and CFD engines directly in WebGL, with no server.
+that runs the pure-Rust DEM, CFD, and electro-thermal engines directly via
+WebGL, with no server.
 
-This crate is the repo's WebAssembly front door. It exposes two solvers to
+This crate is the repo's WebAssembly front door. It exposes three solvers to
 JavaScript via [`wasm-bindgen`](https://crates.io/crates/wasm-bindgen):
 
 * **DEM** ([`tpt_phys_dem`]) — a granular `World` you drive step-by-step.
-* **CFD** ([`tpt_phys_cfd`]) — the D2Q9 lattice-Boltzmann (`Lbm2D`) solver.
+* **CFD** ([`tpt_phys_cfd`]) — the D2Q9 LBM (`Lbm2D`) solver.
+* **Electro-thermal** ([`tpt_phys_electro_thermal`]) — the 1-D Joule-heating
+  `ElectroThermalRod`.
 
 Load a scene (particles/obstacles or a lattice setup) as JSON, advance it
 step-by-step, and pull state back out as flat `Float32Array`s ready to upload
@@ -37,7 +40,20 @@ the playground.
   `velocities()`, `temperatures()`, `kinetic_energy()`.
 * `CfdSimulation` — `new(json)`, `step()`, `nx()`, `ny()`, `velocity()`,
   `solid()`.
+* `ElectroThermalSimulation` — `new(json)`, `step(dt)`, `temperatures()`,
+  `max_temperature()`.
 
 See the doc comments on each constructor for the exact JSON scene schema
 (particles + obstacles for DEM; lattice size, walls, obstacles, moving lid for
-CFD).
+CFD; node count / voltage / convection for electro-thermal).
+
+## Examples
+
+The binding surface is exercised from Rust in `tests/bindings.rs` (build a
+scene from JSON, step it, read scalar state), and live in the browser via
+`www/playground.js`.
+
+## License
+
+Dual-licensed under [MIT](../../LICENSE-MIT) and [Apache-2.0](../../LICENSE-APACHE-2.0).
+Copyright TPT Solutions.

@@ -79,7 +79,7 @@ fn main() {
     while particles.len() < N_GRAINS {
         let angle = rng.next_f64() * std::f64::consts::TAU;
         let radius = r_in + (r_out - r_in) * rng.next_f64();
-        let y = 0.3 + rng.next_f64() * 2.2;
+        let y = 0.2 + rng.next_f64() * 1.4;
         particles.push(Particle::new(
             [radius * angle.cos(), y, radius * angle.sin()],
             [0.0; 3],
@@ -114,12 +114,29 @@ fn main() {
         world.kinetic_energy()
     );
 
-    let steps = 30_000;
-    for _ in 0..steps {
-        world.step();
+    // Settle the bed, sampling the kinetic energy so the decay is visible.
+    // Viscous `drag` sets a terminal fall speed of g/drag, so the residual
+    // energy tails off rather than snapping to exactly zero.
+    println!();
+    println!("  Settling ({:.0} steps of dt = {} s):", 60_000.0, world.dt);
+    println!("    {:>10} {:>14}", "time [s]", "KE [J]");
+    let mut peak_ke = 0.0_f64;
+    let mut stepped = 0usize;
+    for _ in 0..6 {
+        for _ in 0..10_000 {
+            world.step();
+            stepped += 1;
+            peak_ke = peak_ke.max(world.kinetic_energy());
+        }
+        println!(
+            "    {:>10.2} {:>14.3e}",
+            stepped as f64 * world.dt,
+            world.kinetic_energy()
+        );
     }
+    let final_ke = world.kinetic_energy();
 
-    // Diagnostics: closest approach to the spacer axis, and the settled bed.
+    // Diagnostics: closest approach to the spacer axis, and the resulting bed.
     let mut min_radial = f64::INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_y = f64::NEG_INFINITY;
@@ -130,10 +147,10 @@ fn main() {
         max_y = max_y.max(p.position[1]);
     }
 
-    println!("  after {steps} steps ({:.2} s):", steps as f64 * world.dt);
+    println!();
+    println!("  Final state after {stepped} steps:");
     println!(
-        "    kinetic energy    : {:.3e} J  (≈0 ⇒ settled)",
-        world.kinetic_energy()
+        "    kinetic energy    : {final_ke:.3e} J  (peak during settling {peak_ke:.3e} J)"
     );
     println!(
         "    bed height        : {:.3} m  (y from {min_y:.3} to {max_y:.3})",
@@ -158,6 +175,10 @@ fn main() {
     assert!(
         min_y >= world.floor_y - 1e-2,
         "a grain fell through the floor"
+    );
+    assert!(
+        final_ke < 0.25 * peak_ke,
+        "the bed is not settling: KE {final_ke} vs peak {peak_ke}"
     );
     println!();
     println!("OK: the bed settled around the spacer with no penetration.");

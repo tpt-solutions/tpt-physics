@@ -3,16 +3,21 @@
 //! [`World::step`] is a straightforward sequential semi-implicit Euler step.
 //! [`World::step_par`] instead computes each particle's force independently
 //! (summing its own neighbour contacts from the spatial-hash neighbour lists),
-//! so the sweep distributes across the `rayon` thread pool with no
-//! cross-particle write races. This is the CPU acceleration path for very large
-//! particle counts (the crate's `large_scale` test drives >100k particles
-//! through it).
+//! so the *narrow phase* distributes across the `rayon` thread pool with no
+//! cross-particle write races. This is the CPU path used for very large particle
+//! counts — the crate's `large_scale` test drives >100k particles through it.
 //!
-//! Because the pairwise Hertz–Mindlin contact force is exactly antisymmetric,
-//! the two paths agree numerically on pairwise contacts — only the floating-point
-//! summation order differs. The two steppers do differ in *boundary* handling;
-//! see the note printed at the end. This example therefore uses a floor-free,
-//! obstacle-free, bond-free cloud so the comparison is apples to apples.
+//! This example checks two things:
+//!
+//! 1. **Parity.** Because the pairwise Hertz–Mindlin contact force is exactly
+//!    antisymmetric, both steppers produce the same physics; only the
+//!    floating-point summation order differs.
+//! 2. **Scaling.** It times both steppers across several particle counts so you
+//!    can see where the parallel path starts to pay off on *your* machine.
+//!
+//! The scene is deliberately floor-free, obstacle-free and bond-free so the
+//! comparison is apples to apples (the two steppers differ in boundary
+//! handling — see the note printed at the end).
 //!
 //! Run with (release is essential for a meaningful timing):
 //!
@@ -20,25 +25,23 @@
 //! cargo run --release --example parallel_step -p tpt-phys-dem
 //! ```
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tpt_phys_dem::particle::Particle;
 use tpt_phys_dem::world::World;
 
-const NX: usize = 40;
-const NY: usize = 12;
-const NZ: usize = 40;
 const R: f64 = 0.05;
 /// Slight initial overlap so every particle carries real contact work.
 const OVERLAP: f64 = 1.0e-3;
-const STEPS: usize = 100;
+const STEPS: usize = 50;
 
-fn build_world() -> World {
+/// A dense cubic cloud of `nx * ny * nz` mutually-overlapping grains.
+fn build_world(nx: usize, ny: usize, nz: usize) -> World {
     let spacing = 2.0 * R - OVERLAP;
-    let mut particles = Vec::with_capacity(NX * NY * NZ);
-    for i in 0..NX {
-        for j in 0..NY {
-            for k in 0..NZ {
+    let mut particles = Vec::with_capacity(nx * ny * nz);
+    for i in 0..nx {
+        for j in 0..ny {
+            for k in 0..nz {
                 particles.push(Particle::new(
                     [i as f64 * spacing, j as f64 * spacing, k as f64 * spacing],
                     [0.0; 3],
@@ -58,73 +61,84 @@ fn build_world() -> World {
     world
 }
 
-fn main() {
-    let mut sequential = build_world();
-    let mut parallel = build_world();
-    let n = sequential.particles.len();
+fn time_steps(mut world: World, parallel: bool) -> (Duration, f64) {
+    let t = Instant::now();
+    for _ in 0..STEPS {
+        if parallel {
+            world.step_par();
+        } else {
+            world.step();
+        }
+    }
+    (t.elapsed(), world.kinetic_energy())
+}
 
-    println!("DEM parallel contact sweep");
-    println!("  particles         : {n}");
-    println!("  steps             : {STEPS}");
+fn main() {
+    println!("DEM contact sweep: sequential vs. rayon-parallel");
+    println!("  steps per measurement : {STEPS}");
     println!(
-        "  threads available : {}",
+        "  threads available     : {}",
         std::thread::available_parallelism()
             .map(|p| p.get())
             .unwrap_or(1)
     );
-
-    let t0 = Instant::now();
-    for _ in 0..STEPS {
-        sequential.step();
-    }
-    let seq_elapsed = t0.elapsed();
-
-    let t1 = Instant::now();
-    for _ in 0..STEPS {
-        parallel.step_par();
-    }
-    let par_elapsed = t1.elapsed();
-
-    let total = (n * STEPS) as f64;
-    let seq_rate = total / seq_elapsed.as_secs_f64();
-    let par_rate = total / par_elapsed.as_secs_f64();
-
     println!();
     println!(
-        "  {:<12} {:>12} {:>20}",
-        "stepper", "wall time", "particle-steps/s"
+        "  {:>9} {:>12} {:>12} {:>9} {:>12}",
+        "particles", "step()", "step_par()", "ratio", "KE delta"
     );
-    println!("  {}", "-".repeat(46));
-    println!("  {:<12} {:>12.3?} {:>20.3e}", "step()", seq_elapsed, seq_rate);
-    println!(
-        "  {:<12} {:>12.3?} {:>20.3e}",
-        "step_par()", par_elapsed, par_rate
-    );
-    println!("  step_par speedup : {:.2}x", par_rate / seq_rate);
+    println!("  {}", "-".repeat(58));
 
-    // Numerical agreement: identical pairwise physics, only summation order
-    // differs, so the energies must agree to round-off.
-    let ke_seq = sequential.kinetic_energy();
-    let ke_par = parallel.kinetic_energy();
-    let rel = (ke_seq - ke_par).abs() / ke_seq.max(1e-30);
+    for &(nx, ny, nz) in &[(20, 6, 20), (30, 8, 30), (40, 12, 40)] {
+        let n = nx * ny * nz;
+
+        let (seq_time, ke_seq) = time_steps(build_world(nx, ny, nz), false);
+        let (par_time, ke_par) = time_steps(build_world(nx, ny, nz), true);
+
+        let seq_rate = (n * STEPS) as f64 / seq_time.as_secs_f64();
+        let par_rate = (n * STEPS) as f64 / par_time.as_secs_f64();
+        let rel_ke = (ke_seq - ke_par).abs() / ke_seq.abs().max(1e-30);
+
+        println!(
+            "  {n:>9} {:>12.3?} {:>12.3?} {:>8.2}x {rel_ke:>12.2e}",
+            seq_time,
+            par_time,
+            par_rate / seq_rate
+        );
+
+        assert!(
+            ke_seq.is_finite() && ke_par.is_finite(),
+            "simulation diverged at n = {n}"
+        );
+        assert!(
+            rel_ke < 1e-6,
+            "parallel sweep disagreed with the sequential one by {rel_ke} at n = {n}"
+        );
+    }
+
     println!();
-    println!("  kinetic energy   : step() {ke_seq:.6e} J vs step_par() {ke_par:.6e} J");
-    println!("  relative delta   : {rel:.2e} (summation-order round-off only)");
-
-    assert!(
-        ke_seq.is_finite() && ke_par.is_finite(),
-        "simulation diverged"
-    );
-    assert!(
-        rel < 1e-6,
-        "parallel sweep disagreed with the sequential one by {rel}"
-    );
-
+    println!("Parity: both steppers agree on kinetic energy to round-off at every size,");
+    println!("confirming the antisymmetric pairwise contact law is applied identically.");
     println!();
-    println!("Note on boundaries: `step` additionally applies an *inelastic floor* —");
-    println!("it zeroes any remaining downward velocity of a floor-contacting particle —");
+    println!("Reading the `ratio` column (>1.0x means step_par is faster). On a uniform");
+    println!("cloud like this one, step_par is typically *not* a win, for two structural");
+    println!("reasons:");
+    println!("  1. Only the narrow phase is parallelised. The broad phase");
+    println!("     (`SpatialHash::build`, plus building per-particle neighbour lists)");
+    println!("     runs sequentially in both paths and dominates a uniform scene.");
+    println!("  2. The parallel path is race-free precisely because each particle sums");
+    println!("     its own contacts, so every pair's contact force is evaluated *twice*");
+    println!("     (once for i, once for j). The sequential path evaluates each pair once");
+    println!("     and applies equal-and-opposite forces.");
+    println!();
+    println!("So `step_par` trades ~2x arithmetic plus per-particle allocation for thread");
+    println!("parallelism; it needs enough cores (and enough contacts per particle) to");
+    println!("come out ahead. Measure on your own scene and hardware before switching:");
+    println!("`cargo bench -p tpt-phys-dem` tracks `step_par` at 10k and 100k particles.");
+    println!();
+    println!("Boundary caveat: `step` additionally applies an *inelastic floor* — it");
+    println!("zeroes any remaining downward velocity of a floor-contacting particle —");
     println!("which `step_par` does not, so a scene with an active floor settles");
     println!("slightly differently between the two steppers. Fixed-obstacle");
-    println!("de-penetration *is* applied by both. Keep this in mind when switching an");
-    println!("existing floor-bounded scene over to `step_par`.");
+    println!("de-penetration *is* applied by both.");
 }
