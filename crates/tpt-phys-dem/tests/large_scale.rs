@@ -65,19 +65,3 @@ fn hundred_thousand_particles_advance_stably() {
     );
 }
 
-struct Lcg(u64);
-impl Lcg {
-    fn new(seed: u64) -> Self {
-        Lcg(seed | 1)
-    }
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        self.0
-    }
-    fn next_f64(&mut self) -> f64 {
-        ((self.next_u64() >> 11) as f64) / (1u64 << 53) as f64
-    }
-}

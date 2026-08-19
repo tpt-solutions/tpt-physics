@@ -41,6 +41,11 @@ impl Grid2D {
         self.nx * self.ny
     }
 
+    /// `true` when the grid has no nodes.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Assemble the standard 5-point Laplacian `A` for the operator `-Δ` with
     /// unit spacing (the interior stencil `4·center − 4·neighbours`). Boundary
     /// rows are left as the stencil sees them; callers pin Dirichlet rows as
@@ -224,9 +229,9 @@ fn jacobi(a: &Csr, b: &[f64], x: &mut [f64]) {
 fn solve_dense_csr(a: &Csr, b: &[f64]) -> Vec<f64> {
     let n = a.nrows;
     let mut m = vec![vec![0.0; n]; n];
-    for r in 0..n {
+    for (r, m_r) in m.iter_mut().enumerate() {
         for idx in a.row_ptrs[r]..a.row_ptrs[r + 1] {
-            m[r][a.col_ind[idx]] = a.values[idx];
+            m_r[a.col_ind[idx]] = a.values[idx];
         }
     }
     // Augment with RHS and eliminate.
@@ -240,22 +245,23 @@ fn solve_dense_csr(a: &Csr, b: &[f64]) -> Vec<f64> {
     for col in 0..n {
         let mut piv = col;
         let mut best = aug[col][col].abs();
-        for r in (col + 1)..n {
-            if aug[r][col].abs() > best {
-                best = aug[r][col].abs();
+        for (r, aug_r) in aug.iter().enumerate().skip(col + 1) {
+            if aug_r[col].abs() > best {
+                best = aug_r[col].abs();
                 piv = r;
             }
         }
         aug.swap(col, piv);
         let d = aug[col][col];
-        for j in col..=n {
-            aug[col][j] /= d;
+        for aug_col in aug[col].iter_mut().skip(col).take(n + 1 - col) {
+            *aug_col /= d;
         }
         for r in 0..n {
             if r != col {
                 let f = aug[r][col];
-                for j in col..=n {
-                    aug[r][j] -= f * aug[col][j];
+                let col_row: Vec<f64> = aug[col][col..=n].to_vec();
+                for (j, aug_rj) in aug[r].iter_mut().enumerate().skip(col).take(n + 1 - col) {
+                    *aug_rj -= f * col_row[j - col];
                 }
             }
         }

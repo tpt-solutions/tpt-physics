@@ -252,7 +252,7 @@ impl Lbm2D {
                                     // instead of reflecting. This applies the same
                                     // characteristic-based zero-gradient treatment
                                     // as `XBoundary::Open`.
-                                    let c = (nx - 2) as usize;
+                                    let c = nx - 2;
                                     let ci = iy * nx + c;
                                     f_prev[ci][k]
                                 }
@@ -269,7 +269,7 @@ impl Lbm2D {
                                     let wy = clamp_wall(sy, ny as isize);
                                     f_prev[wy * nx + wx][k]
                                 } else {
-                                    let c = (nx - 2) as usize;
+                                    let c = nx - 2;
                                     let ci = iy * nx + c;
                                     f_prev[ci][k]
                                 }
@@ -455,8 +455,8 @@ mod tests {
         assert!(prof[0].abs() < 1e-9, "wall u = {}", prof[0]);
         assert!(prof[ny - 1].abs() < 1e-9, "wall u = {}", prof[ny - 1]);
         // Positive flow through the interior.
-        for y in 1..ny - 1 {
-            assert!(prof[y] > 0.0, "u[{y}] = {}", prof[y]);
+        for (y, &u) in prof.iter().enumerate().take(ny - 1).skip(1) {
+            assert!(u > 0.0, "u[{y}] = {u}");
         }
         // Symmetric about the centre row.
         for y in 1..ny / 2 {

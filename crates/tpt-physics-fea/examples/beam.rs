@@ -71,9 +71,9 @@ fn solve_6x6(a: &[[f64; 6]; 6], b: &[f64; 6], x: &mut [f64; 6]) -> bool {
     for c in 0..6 {
         let mut piv = c;
         let mut best = m[c][c].abs();
-        for r in (c + 1)..6 {
-            if m[r][c].abs() > best {
-                best = m[r][c].abs();
+        for (r, m_r) in m.iter().enumerate().skip(c + 1) {
+            if m_r[c].abs() > best {
+                best = m_r[c].abs();
                 piv = r;
             }
         }
@@ -82,12 +82,13 @@ fn solve_6x6(a: &[[f64; 6]; 6], b: &[f64; 6], x: &mut [f64; 6]) -> bool {
         }
         m.swap(c, piv);
         let d = m[c][c];
-        for j in c..7 {
-            m[c][j] /= d;
+        for m_cj in m[c][c..7].iter_mut() {
+            *m_cj /= d;
         }
         for r in 0..6 {
             if r != c {
                 let f = m[r][c];
+                #[allow(clippy::needless_range_loop)]
                 for j in c..7 {
                     m[r][j] -= f * m[c][j];
                 }

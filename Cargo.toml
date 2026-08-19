@@ -8,6 +8,7 @@ members = [
     "crates/tpt-physics-cfd",
     "crates/tpt-physics-ai",
     "crates/tpt-physics-gallery",
+    "crates/tpt-physics-wasm",
 ]
 # The Python (PyO3) binding lives outside the Rust workspace so it does not
 # pull Python dev headers into the default `cargo build --workspace`. Build it

@@ -247,60 +247,68 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
       FAILING + >3 min in debug.
 
 ### P1 — Correctness & coverage gaps
-- [ ] `[GAP]` Fix Mindlin–Reissner shell shear-sign conventions in
+  - [x] `[GAP]` Fix Mindlin–Reissner shell shear-sign conventions in
       `elements.rs:429-431` so the element is rigid-body exact; validate
       against a plate benchmark (Scordelis–Lo / Morley).
-- [ ] `[GAP]` Add degenerate/inverted-element guards (`det ≈ 0 → error`) in
+  - [x] `[GAP]` Add degenerate/inverted-element guards (`det ≈ 0 → error`) in
       `elements.rs:10` (`mat3_inv`), `nonlinear.rs:35` (`inv3`), and take
       `abs(detj)` in `tet10_stiffness`.
-- [ ] `[GAP]` Make `World::step_par` apply obstacle de-penetration (or fall
+  - [x] `[GAP]` Make `World::step_par` apply obstacle de-penetration (or fall
       back to sequential `step` with a logged warning) so the >100k path is
       physically correct with obstacles.
-- [ ] `[GAP]` Reword README/lib.rs that imply Hex8/beam nonlinear frameworks
+  - [x] `[GAP]` Reword README/lib.rs that imply Hex8/beam nonlinear frameworks
       (only Tet4 continuum nonlinear + J2 exist); mark GPU dispatch,
       GMRES-preconditioned, and shell elements "experimental".
-- [ ] `[GAP]` Wire up `bincode` checkpoint/resume of simulation state, or drop
+  - [x] `[GAP]` Wire up `bincode` checkpoint/resume of simulation state, or drop
       the unused dep.
 
 ### P2 — Missing features
-- [ ] `[GAP]` Add GMRES preconditioning + lightweight AMG/multigrid (mirror
+  - [x] `[GAP]` Add GMRES preconditioning + lightweight AMG/multigrid (mirror
       `cg_pc`); keep `cg`/`gmres` API consistent.
-- [ ] `[GAP]` Add CFD characteristic/outflow boundary (replace crude
+  - [x] `[GAP]` Add CFD characteristic/outflow boundary (replace crude
       zero-gradient + reflective `clamp_wall`).
-- [ ] `[GAP]` Implement a real GPU compute path (`wgpu`/`spark`) behind the
+  - [x] `[GAP]` Implement a real GPU compute path (`wgpu`/`spark`) behind the
       existing `HardwareDispatch` instead of `BackendUnavailable`.
-- [ ] `[GAP]` Add declarative JSON/YAML problem spec (mesh + BCs + material +
+  - [x] `[GAP]` Add declarative JSON/YAML problem spec (mesh + BCs + material +
       solver) reusing `MaterialRegistry::from_json`.
-- [ ] `[GAP]` Add cohesive/bonded DEM contacts and inter-particle heat
+  - [x] `[GAP]` Add cohesive/bonded DEM contacts and inter-particle heat
       transfer.
 
 ### P3 — Innovation
-- [ ] `[ADOPT]` Build gradient-based / topology design optimization on the
+  - [x] `[ADOPT]` Build gradient-based / topology design optimization on the
       `tpt-math-autodiff` differentiable path (`tpt-physics-ai`).
-- [ ] `[ADOPT]` WASM web playground (load mesh → run CFD/DEM → WebGL view).
-- [ ] `[ADOPT]` Uncertainty quantification (Monte-Carlo over materials via
-      `proptest`).
+- [x] `[ADOPT]` WASM web playground (load mesh → run CFD/DEM → WebGL view) —
+      `crates/tpt-physics-wasm` exposes the DEM `World` and CFD `Lbm2D` solvers
+      to JS via `wasm-bindgen` (JSON scene in → flat `Float32Array` state out),
+      with a WebGL frontend in `crates/tpt-physics-wasm/www/` (DEM point-sprite
+      spheres coloured by speed, CFD speed-field texture + velocity arrows).
+      Build with `just wasm` (needs `wasm-pack`/`wasm-bindgen-cli`), serve `www/`.
+- [x] `[ADOPT]` Uncertainty quantification (Monte-Carlo over materials via
+      `proptest`) — `crates/tpt-physics-core/src/uq.rs` (feature `uq`) samples
+      materials from a relative tolerance band via `proptest`, sweeps a scalar
+      response, and returns mean/std/percentiles/CoV; wired into `core`,
+      re-exported, and demonstrated by `examples/uq_cantilever.rs`.
 
 ### P2 — Automation `[AUTO]`
 - [x] Add GitHub Actions: build+test (stable + nightly), `cargo clippy
       -- -D warnings`, `cargo fmt --check`, `cargo deny check`, doc build.
 - [x] Add `rustfmt.toml` pinning formatting.
-- [ ] Replace manual `eprintln!` timing examples with a `criterion` bench
+  - [x] Replace manual `eprintln!` timing examples with a `criterion` bench
       harness + long-term tracking.
-- [ ] Add per-crate runnable `/// ``` ` doctests (only `core` has one today).
+  - [x] Add per-crate runnable `/// ``` ` doctests (only `core` has one today).
 
 ### P1 — Adoption & examples `[ADOPT]`
 - [ ] Publish `tpt-math`/`tpt-fem` to crates.io (or git deps) so
       `cargo add tpt-physics-*` works without sibling clones; fix
       `deny.toml [sources]` to match actual usage.
-- [ ] Add `scripts/bootstrap.ps1`/`.sh` + `justfile` (`just setup/check/test/
+  - [x] Add `scripts/bootstrap.ps1`/`.sh` + `justfile` (`just setup/check/test/
       bench`) for sibling-dep setup.
 - [ ] Ship a `cargo-generate` template repo `tpt-physics-template`.
-- [ ] Add per-domain "hello world" examples: `beam.rs`, `cavity.rs`,
+  - [x] Add per-domain "hello world" examples: `beam.rs`, `cavity.rs`,
       `granular_pile.rs`, `rl_pendulum.rs`.
-- [ ] Add an example-gallery doc + `gallery` runner binary.
-- [ ] Add a Python (PyO3) thin binding over FEA/DEM `World`.
-- [ ] README: Quickstart, Troubleshooting (sibling deps), examples index,
+  - [x] Add an example-gallery doc + `gallery` runner binary.
+  - [x] Add a Python (PyO3) thin binding over FEA/DEM `World`.
+  - [x] README: Quickstart, Troubleshooting (sibling deps), examples index,
       "validated vs experimental" table.
 
 ## Phase 5: spec2.txt re-scope — DEM/meshless-CFD/multiphysics coupling

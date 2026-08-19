@@ -130,12 +130,13 @@ impl World {
         let mut force = vec![[0.0_f64; 3]; n];
         let mut heat_rate = vec![0.0_f64; n]; // W into particle i (Newton cooling)
 
-        for i in 0..n {
-            for k in 0..3 {
-                force[i][k] += self.gravity[k] * self.particles[i].mass;
+        for (i, fi) in force.iter_mut().enumerate() {
+            let m = self.particles[i].mass;
+            for (k, fik) in fi.iter_mut().enumerate() {
+                *fik += self.gravity[k] * m;
             }
             // Optional fluidized-driving term (extra downward body force).
-            force[i][1] += self.fluidization * self.particles[i].mass;
+            fi[1] += self.fluidization * m;
         }
 
         let max_r = self
@@ -173,25 +174,25 @@ impl World {
             }
         }
 
-        for i in 0..n {
-            let pen = self.floor_y - (self.particles[i].position[1] - self.particles[i].radius);
+        for (fi, p) in force.iter_mut().zip(self.particles.iter_mut()) {
+            let pen = self.floor_y - (p.position[1] - p.radius);
             if pen > 0.0 {
-                let f_n = hertz_normal_force(self.e_star, self.particles[i].radius, pen);
-                let vn = self.particles[i].velocity[1];
+                let f_n = hertz_normal_force(self.e_star, p.radius, pen);
+                let vn = p.velocity[1];
                 let damp = -2.0
-                    * (self.e_star * self.particles[i].radius * self.particles[i].mass).sqrt()
+                    * (self.e_star * p.radius * p.mass).sqrt()
                     * self.restitution
                     * vn.min(0.0);
                 // `damp` is already the upward damping force magnitude (it is
                 // positive when the particle moves downward into the floor), so
                 // it must be *added* to the Hertz normal force to dissipate.
-                force[i][1] += f_n + damp;
+                fi[1] += f_n + damp;
                 // Inelastic floor: remove any remaining downward (into-floor)
                 // velocity so particles come to rest on the floor instead of
                 // bouncing — the damping term alone is sub-critical for an open
                 // pile and leaves a perpetually-agitated layer.
-                if self.particles[i].velocity[1] < 0.0 {
-                    self.particles[i].velocity[1] = 0.0;
+                if p.velocity[1] < 0.0 {
+                    p.velocity[1] = 0.0;
                 }
             }
         }
@@ -229,17 +230,17 @@ impl World {
             force[j][2] -= ff * nz;
         }
 
-        for i in 0..n {
+        for (fi, p) in force.iter_mut().zip(self.particles.iter_mut()) {
             for obs in &self.obstacles {
                 if let Some((f, corr)) = obs.resolve(
-                    &self.particles[i],
+                    p,
                     self.e_star,
                     self.friction,
                     self.restitution,
                 ) {
                     for k in 0..3 {
-                        force[i][k] += f[k];
-                        self.particles[i].position[k] += corr[k];
+                        fi[k] += f[k];
+                        p.position[k] += corr[k];
                     }
                     // A fixed obstacle is inelastic: after the de-penetration
                     // snap, remove any remaining inward normal velocity so the
@@ -250,13 +251,13 @@ impl World {
                     if cl > 1e-12 {
                         let inv = 1.0 / cl.sqrt();
                         let (nx, ny, nz) = (corr[0] * inv, corr[1] * inv, corr[2] * inv);
-                        let vn = self.particles[i].velocity[0] * nx
-                            + self.particles[i].velocity[1] * ny
-                            + self.particles[i].velocity[2] * nz;
+                        let vn = p.velocity[0] * nx
+                            + p.velocity[1] * ny
+                            + p.velocity[2] * nz;
                         if vn < 0.0 {
-                            self.particles[i].velocity[0] -= vn * nx;
-                            self.particles[i].velocity[1] -= vn * ny;
-                            self.particles[i].velocity[2] -= vn * nz;
+                            p.velocity[0] -= vn * nx;
+                            p.velocity[1] -= vn * ny;
+                            p.velocity[2] -= vn * nz;
                         }
                     }
                 }
@@ -266,20 +267,22 @@ impl World {
         let dt = self.dt;
         let vmax = self.max_speed;
         let drag_f = 1.0 / (1.0 + self.drag * dt);
-        for i in 0..n {
-            let inv = self.particles[i].inv_mass();
-            for k in 0..3 {
-                let v = (self.particles[i].velocity[k] + force[i][k] * inv * dt) * drag_f;
-                self.particles[i].velocity[k] = v;
-                self.particles[i].position[k] += v * dt;
+        for (p, fi) in self.particles.iter_mut().zip(force.iter()) {
+            let inv = p.inv_mass();
+            for (k, fik) in fi.iter().enumerate() {
+                let v = (p.velocity[k] + fik * inv * dt) * drag_f;
+                p.velocity[k] = v;
+                p.position[k] += v * dt;
             }
             if vmax > 0.0 {
-                let v = &self.particles[i].velocity;
-                let speed = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+                let speed = (p.velocity[0] * p.velocity[0]
+                    + p.velocity[1] * p.velocity[1]
+                    + p.velocity[2] * p.velocity[2])
+                    .sqrt();
                 if speed > vmax {
                     let s = vmax / speed;
                     for k in 0..3 {
-                        self.particles[i].velocity[k] *= s;
+                        p.velocity[k] *= s;
                     }
                 }
             }
@@ -287,11 +290,10 @@ impl World {
 
         // Inter-particle heat conduction (lumped Newton cooling).
         if self.heat_transfer_coeff > 0.0 && self.specific_heat > 0.0 {
-            for i in 0..n {
-                let m = self.particles[i].mass;
+            for (p, &hr) in self.particles.iter_mut().zip(heat_rate.iter()) {
+                let m = p.mass;
                 if m > 0.0 {
-                    self.particles[i].temperature -=
-                        heat_rate[i] * dt / (m * self.specific_heat);
+                    p.temperature -= hr * dt / (m * self.specific_heat);
                 }
             }
         }
@@ -417,20 +419,22 @@ impl World {
         let dt = self.dt;
         let vmax = self.max_speed;
         let drag_f = 1.0 / (1.0 + self.drag * dt);
-        for i in 0..n {
-            let inv = self.particles[i].inv_mass();
-            for k in 0..3 {
-                let v = (self.particles[i].velocity[k] + forces[i][k] * inv * dt) * drag_f;
-                self.particles[i].velocity[k] = v;
-                self.particles[i].position[k] += v * dt;
+        for (p, fi) in self.particles.iter_mut().zip(forces.iter()) {
+            let inv = p.inv_mass();
+            for (k, fik) in fi.iter().enumerate() {
+                let v = (p.velocity[k] + fik * inv * dt) * drag_f;
+                p.velocity[k] = v;
+                p.position[k] += v * dt;
             }
             if vmax > 0.0 {
-                let v = &self.particles[i].velocity;
-                let speed = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+                let speed = (p.velocity[0] * p.velocity[0]
+                    + p.velocity[1] * p.velocity[1]
+                    + p.velocity[2] * p.velocity[2])
+                    .sqrt();
                 if speed > vmax {
                     let s = vmax / speed;
                     for k in 0..3 {
-                        self.particles[i].velocity[k] *= s;
+                        p.velocity[k] *= s;
                     }
                 }
             }
@@ -449,8 +453,8 @@ impl World {
                     self.friction,
                     self.restitution,
                 ) {
-                    for k in 0..3 {
-                        self.particles[i].position[k] += corr[k];
+                    for (k, pk) in self.particles[i].position.iter_mut().enumerate() {
+                        *pk += corr[k];
                     }
                     let cl = corr[0] * corr[0] + corr[1] * corr[1] + corr[2] * corr[2];
                     if cl > 1e-12 {
@@ -471,11 +475,10 @@ impl World {
 
         // Inter-particle heat conduction (lumped Newton cooling).
         if self.heat_transfer_coeff > 0.0 && self.specific_heat > 0.0 {
-            for i in 0..n {
-                let m = self.particles[i].mass;
+            for (p, &hr) in self.particles.iter_mut().zip(heat_rate.iter()) {
+                let m = p.mass;
                 if m > 0.0 {
-                    self.particles[i].temperature -=
-                        heat_rate[i] * dt / (m * self.specific_heat);
+                    p.temperature -= hr * dt / (m * self.specific_heat);
                 }
             }
         }
@@ -562,9 +565,9 @@ impl World {
         } else {
             f64::INFINITY
         };
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if present[i][j] {
+        for (i, row) in present.iter().enumerate() {
+            for (j, &occupied) in row.iter().enumerate().skip(i + 1) {
+                if occupied {
                     continue;
                 }
                 let dx = self.particles[i].position[0] - self.particles[j].position[0];
