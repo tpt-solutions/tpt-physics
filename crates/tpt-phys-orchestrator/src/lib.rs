@@ -11,6 +11,10 @@
 //! land) the [`SubModel`] adapters that let those coupling crates plug into a
 //! [`Simulation`] directly.
 
+pub mod adapters;
 pub mod rl;
 
+pub use adapters::{
+    build_demo_simulation, ElectroThermalSubModel, FsiSubModel, ThermalStructSubModel,
+};
 pub use tpt_sci_sim_core::{Checkpoint, Coupling, CouplingFn, Simulation, SubModel};

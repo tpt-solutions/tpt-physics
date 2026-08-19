@@ -21,7 +21,7 @@
 //! # Example
 //!
 //! ```
-//! use tpt_phys_orchestrator::rl::{DifferentiablePlant, GymWrapper, HarmonicOscillator};
+//! use tpt_phys_orchestrator::rl::{DifferentiablePlant, GymEnv, GymWrapper, HarmonicOscillator};
 //!
 //! let plant = HarmonicOscillator::new();
 //! let mut env = GymWrapper::new(plant, vec![1.0, 0.0], 5);
@@ -220,7 +220,7 @@ impl DifferentiablePlant for HarmonicOscillator {
         let c = Dual::constant(self.c);
         let m = Dual::constant(self.m);
         let dt = Dual::constant(self.dt);
-        let acc = (a[0] - (k.clone() * x + c.clone() * v)) / m.clone();
+        let acc = (a[0] - (k * x + c * v)) / m;
         let v_new = v + dt * acc;
         let x_new = x + dt * v_new;
         vec![x_new, v_new]
@@ -315,11 +315,11 @@ impl DifferentiablePlant for Pendulum {
         let b = Dual::constant(self.b);
         let m = Dual::constant(self.m);
         let dt = Dual::constant(self.dt);
-        let grav = (g.clone() / l.clone()) * theta.clone().sin();
-        let damp = (b.clone() / m.clone()) * omega.clone();
-        let ang_acc = Dual::constant(0.0) - grav - damp + a[0].clone() / m.clone();
-        let omega_new = omega + dt.clone() * ang_acc;
-        let theta_new = theta + dt * omega_new.clone();
+        let grav = (g / l) * theta.sin();
+        let damp = (b / m) * omega;
+        let ang_acc = Dual::constant(0.0) - grav - damp + a[0] / m;
+        let omega_new = omega + dt * ang_acc;
+        let theta_new = theta + dt * omega_new;
         vec![theta_new, omega_new]
     }
 

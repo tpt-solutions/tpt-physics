@@ -88,10 +88,7 @@ impl Statistics {
         }
         let sum: f64 = samples.iter().sum();
         let mean = sum / n as f64;
-        let var = samples
-            .iter()
-            .map(|x| (x - mean).powi(2))
-            .sum::<f64>()
+        let var = samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
             / (n as f64 - if n > 1 { 1.0 } else { 0.0 });
         let std = var.sqrt();
         let min = samples.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -186,7 +183,10 @@ pub fn monte_carlo_seeded(
 ) -> Statistics {
     let mut runner = TestRunner::new_with_rng(
         proptest::test_runner::Config::default(),
-        proptest::test_runner::TestRng::from_seed(proptest::test_runner::RngAlgorithm::ChaCha, &seed),
+        proptest::test_runner::TestRng::from_seed(
+            proptest::test_runner::RngAlgorithm::ChaCha,
+            &seed,
+        ),
     );
     let mut samples = Vec::with_capacity(n);
     for _ in 0..n {
@@ -282,8 +282,12 @@ mod tests {
         let strat = tol_band(&s, 0.10, 0.0, 0.0, 0.0);
         let stats = monte_carlo(&strat, |m| m.youngs_modulus, 4000);
         // Mean of a symmetric uniform band equals the nominal value.
-        assert!((stats.mean - s.youngs_modulus).abs() / s.youngs_modulus < 0.02,
-            "mean E = {} vs nominal {}", stats.mean, s.youngs_modulus);
+        assert!(
+            (stats.mean - s.youngs_modulus).abs() / s.youngs_modulus < 0.02,
+            "mean E = {} vs nominal {}",
+            stats.mean,
+            s.youngs_modulus
+        );
         // A ±10% band yields a COV of ~10%/sqrt(3) ≈ 5.8% for a uniform.
         assert!(stats.cov > 0.03 && stats.cov < 0.08, "cov = {}", stats.cov);
         // Half-width bounds: never outside the ±10% band.
@@ -298,7 +302,11 @@ mod tests {
         let s = steel();
         // δ ∝ 1/E, so a ±10% uniform band on E gives a response COV of a few %.
         let strat = tol_band(&s, 0.10, 0.0, 0.0, 0.0);
-        let stats = monte_carlo(&strat, |m| cantilever_tip_deflection(m, 1000.0, 2.0, 1e-6), 4000);
+        let stats = monte_carlo(
+            &strat,
+            |m| cantilever_tip_deflection(m, 1000.0, 2.0, 1e-6),
+            4000,
+        );
         assert!(stats.mean > 0.0);
         assert!(stats.std > 0.0);
         assert!(stats.max > stats.min);
@@ -310,8 +318,18 @@ mod tests {
     fn sweep_is_deterministic_for_fixed_seed() {
         let s = steel();
         let strat = tol_band(&s, 0.15, 0.10, 0.05, 0.0);
-        let a = monte_carlo_seeded(&strat, |m| cantilever_natural_frequency(m, 2.0, 1e-6, 1e-3), 1000, [7u8; 32]);
-        let b = monte_carlo_seeded(&strat, |m| cantilever_natural_frequency(m, 2.0, 1e-6, 1e-3), 1000, [7u8; 32]);
+        let a = monte_carlo_seeded(
+            &strat,
+            |m| cantilever_natural_frequency(m, 2.0, 1e-6, 1e-3),
+            1000,
+            [7u8; 32],
+        );
+        let b = monte_carlo_seeded(
+            &strat,
+            |m| cantilever_natural_frequency(m, 2.0, 1e-6, 1e-3),
+            1000,
+            [7u8; 32],
+        );
         assert!((a.mean - b.mean).abs() < 1e-12, "{} vs {}", a.mean, b.mean);
     }
 

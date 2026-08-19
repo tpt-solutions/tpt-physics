@@ -2,14 +2,19 @@
 //! mapping between a fluid domain (`tpt-phys-cfd`) and a structural domain
 //! (a `tpt-fem-mesh` from `tpt-fem`).
 //!
-//! This crate is a scaffold: the mesh-mapping primitive below
-//! ([`nearest_node_map`]) is the minimal building block a partitioned FSI
-//! coupling loop needs (interpolating boundary tractions/displacements
-//! between non-matching fluid and structural interface meshes); the
-//! explicit/implicit coupling-iteration driver itself is not yet
-//! implemented.
+//! [`nearest_node_map`] is the minimal nearest-neighbour mesh-mapping primitive
+//! between non-matching fluid and structural interface discretizations; the
+//! [`coupling`] module builds on it with the actual explicit/implicit
+//! coupling-iteration driver (`advance fluid → map traction → solve structure
+//! → map displacement back`), which the scaffold was previously missing.
 
 use tpt_fem_mesh::Mesh;
+
+pub mod coupling;
+
+pub use coupling::{
+    couple_explicit, FluidInterfacePoint, FsiDriver, LumpedStructure, StructuralModel,
+};
 
 /// For each point in `fluid_interface`, the index of its nearest node in
 /// `structural_mesh` — the simplest possible (nearest-neighbour) mesh

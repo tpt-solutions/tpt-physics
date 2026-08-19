@@ -15,6 +15,7 @@
 //! * `rayon`-friendly bulk loops.
 
 pub mod lattice;
+pub mod sph;
 
 use lattice::D2Q9;
 use rayon::prelude::*;
@@ -137,6 +138,16 @@ impl Lbm2D {
             self.solid[i] = true;
             self.wall_vel[i] = [v, 0.0];
         }
+    }
+
+    /// Set a single node `(ix, iy)` as a moving wall with lattice velocity
+    /// `v = [u, w]`. The node is marked solid so the Ladd bounce-back
+    /// correction applies; used by FSI back-coupling to drag the fluid with a
+    /// moving structural boundary.
+    pub fn set_wall_velocity(&mut self, ix: usize, iy: usize, v: [f64; 2]) {
+        let i = self.idx(ix, iy);
+        self.solid[i] = true;
+        self.wall_vel[i] = v;
     }
 
     /// Add a solid circular obstacle centred at `(cx, cy)` with lattice radius

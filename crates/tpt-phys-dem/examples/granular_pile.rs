@@ -40,7 +40,11 @@ fn main() {
     }
     let ke = w.kinetic_energy();
 
-    println!("Granular pile ({} particles, {} steps):", w.particles.len(), steps);
+    println!(
+        "Granular pile ({} particles, {} steps):",
+        w.particles.len(),
+        steps
+    );
     println!("  kinetic energy     : {ke:.4e} J  (should be ≈ 0 → settled)");
     println!("  pile height        : {:.4} m", max_y - min_y);
     println!("  top / bottom y      : {max_y:.4} / {min_y:.4}");

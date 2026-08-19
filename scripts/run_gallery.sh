@@ -11,11 +11,9 @@ run() {
     echo ""
 }
 
-run tpt-physics-fea beam
-run tpt-physics-cfd cavity
-run tpt-physics-dem granular_pile
-run tpt-physics-ai rl_pendulum
-run tpt-physics-fea pile_cage_spacer
-run tpt-physics-fea spacer_benchmark
+run tpt-phys-cfd cavity
+run tpt-phys-dem granular_pile
+run tpt-phys-orchestrator rl_pendulum
+run tpt-phys-core uq_cantilever --features uq
 
 echo "Gallery complete."

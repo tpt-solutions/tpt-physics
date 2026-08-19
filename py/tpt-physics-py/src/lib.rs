@@ -1,15 +1,18 @@
 //! Python bindings for `tpt-physics` (thin PyO3 layer over the DEM [`World`]
-//! and the FEA declarative [`ProblemSpec`]).
+//! and the material registry).
 //!
 //! Built with `maturin develop` / `maturin build` from this directory. The
 //! crate is intentionally *outside* the Rust workspace (`exclude`d in the root
 //! `Cargo.toml`) so the default `cargo build --workspace` does not require
 //! Python development headers.
+//!
+//! The FEA declarative `ProblemSpec` binding was removed when `tpt-physics-fea`
+//! was retired (FEM is now delegated to `tpt-fem`); the DEM and material APIs
+//! remain.
 
 use pyo3::prelude::*;
-use tpt_physics_core::MaterialRegistry;
-use tpt_physics_dem::particle::Particle;
-use tpt_physics_dem::world::World;
+use tpt_phys_dem::particle::Particle;
+use tpt_phys_dem::world::World;
 
 /// A Python-facing granular world. Wraps [`tpt_physics_dem::world::World`].
 #[pyclass]
@@ -59,22 +62,9 @@ impl DemWorld {
     }
 }
 
-/// Solve a declarative FEA problem from a JSON string and return the free-top
-/// settlement (m). See `tpt_physics_fea::spec::ProblemSpec`.
-#[pyfunction]
-fn solve_fea(json: &str) -> PyResult<f64> {
-    let spec = tpt_physics_fea::spec::ProblemSpec::from_json(json)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-    let solved = spec
-        .solve(&MaterialRegistry::new())
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-    Ok(solved.free_top_settlement_y)
-}
-
 /// The `tpt_physics` Python module.
 #[pymodule]
 fn tpt_physics_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DemWorld>()?;
-    m.add_function(wrap_pyfunction!(solve_fea, m)?)?;
     Ok(())
 }

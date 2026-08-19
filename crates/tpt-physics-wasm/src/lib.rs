@@ -1,7 +1,7 @@
 //! WebAssembly bindings for the `tpt-physics` solvers.
 //!
-//! This crate exposes the DEM ([`tpt_physics_dem`]) and CFD
-//! ([`tpt_physics_cfd`]) engines to JavaScript so they can be driven from a
+//! This crate exposes the DEM ([`tpt_phys_dem`]) and CFD
+//! ([`tpt_phys_cfd`]) engines to JavaScript so they can be driven from a
 //! browser: load a scene (particles/obstacles or a lattice setup) as JSON,
 //! advance it step-by-step, and pull the state back out as flat `Float32Array`s
 //! ready to upload to a WebGL buffer.
@@ -13,10 +13,10 @@
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
-use tpt_physics_cfd::{Lbm2D, XBoundary};
-use tpt_physics_dem::obstacle::Obstacle;
-use tpt_physics_dem::particle::Particle;
-use tpt_physics_dem::world::World;
+use tpt_phys_cfd::{Lbm2D, XBoundary};
+use tpt_phys_dem::obstacle::Obstacle;
+use tpt_phys_dem::particle::Particle;
+use tpt_phys_dem::world::World;
 
 fn js_err<E: std::fmt::Display>(e: E) -> JsValue {
     JsValue::from_str(&e.to_string())

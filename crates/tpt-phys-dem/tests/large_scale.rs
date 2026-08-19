@@ -64,4 +64,3 @@ fn hundred_thousand_particles_advance_stably() {
         ke
     );
 }
-

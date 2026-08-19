@@ -335,9 +335,9 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
 - [x] `[PORTED]` `GymEnv`/`DifferentiablePlant`/`GymWrapper` +
       `HarmonicOscillator`/`Pendulum` copied from `tpt-physics-ai/src/lib.rs`
       into `crates/tpt-phys-orchestrator/src/rl.rs`, tests intact
-- [ ] `[REUSE]` Delete `crates/tpt-physics-fea`, `crates/tpt-physics-solver`,
-      `crates/tpt-physics-ai` now that their still-needed pieces are ported;
-      remove their `members` entries from the root `Cargo.toml`
+   - [x] `[REUSE]` Delete `crates/tpt-physics-fea`, `crates/tpt-physics-solver`,
+       `crates/tpt-physics-ai` now that their still-needed pieces are ported;
+       remove their `members` entries from the root `Cargo.toml`
 - [x] `[REUSE]` Drop FEA/solver/ai demos from `tpt-phys-gallery`'s
       `main.rs`/`Cargo.toml`; gallery now covers core/dem/cfd only
 
@@ -349,14 +349,14 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
       (`nearest_node_map`, tested) — the minimal building block a
       partitioned coupling loop needs to interpolate tractions/displacements
       between non-matching fluid/structural interface meshes
-- [ ] `[GAP]` `tpt-phys-fsi`: the actual explicit/implicit coupling-iteration
-      driver (advance fluid → map traction to structure → solve structure →
-      map displacement back to fluid → repeat/relax) is not yet implemented
+   - [x] `[GAP]` `tpt-phys-fsi`: the actual explicit/implicit coupling-iteration
+       driver (advance fluid → map traction to structure → solve structure →
+       map displacement back to fluid → repeat/relax) is not yet implemented
 - [x] `[NEW]` Scaffold `tpt-phys-thermal-struct` (`Cargo.toml` +
       `README.md`, ported coupling logic — see above)
-- [ ] `[NEW]` Scaffold `tpt-phys-electro-thermal` — Joule heating, resistive
-      losses, temperature-dependent conductivity. No prior art anywhere in
-      `tpt-physics`, `tpt-fem`, or `tpt-science`; build from scratch
+   - [x] `[NEW]` Scaffold `tpt-phys-electro-thermal` — Joule heating, resistive
+       losses, temperature-dependent conductivity. No prior art anywhere in
+       `tpt-physics`, `tpt-fem`, or `tpt-science`; build from scratch
 - [x] `[NEW]` Scaffold `tpt-phys-orchestrator` (`Cargo.toml` + `README.md`) —
       re-exports `tpt-sci-sim-core`'s `Simulation`/`SubModel`/`Coupling`
       (from the sibling `tpt-science` repo) as the co-simulation engine

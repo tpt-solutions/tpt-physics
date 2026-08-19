@@ -16,6 +16,12 @@ categories = ["science", "mathematics", "simulation"]
 tpt-sci-sim-core = { workspace = true }
 tpt-math-autodiff = { workspace = true }
 tpt-math-linalg-dense = { workspace = true }
+tpt-fem-mesh = { workspace = true }
+tpt-phys-core = { path = "../tpt-phys-core" }
+tpt-phys-fsi = { path = "../tpt-phys-fsi" }
+tpt-phys-cfd = { path = "../tpt-phys-cfd" }
+tpt-phys-thermal-struct = { path = "../tpt-phys-thermal-struct" }
+tpt-phys-electro-thermal = { path = "../tpt-phys-electro-thermal" }
 tracing = { workspace = true }
 
 [lints]

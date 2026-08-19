@@ -36,25 +36,35 @@ a modular, composable, permissively-licensed Rust workspace.
 
 ## Architecture
 
+Per the 2026-08-19 re-scope (`spec2.txt`), `tpt-physics` owns only what
+`tpt-fem` doesn't already implement: **DEM**, **meshless CFD** (SPH/LBM), and
+**multiphysics coupling orchestration**. FEM is delegated to `tpt-fem` and
+rigid-body dynamics to `tpt-science`. Crate names carry the `tpt-phys-*` prefix.
+
 ```
-tpt-physics/
-├── tpt-physics-core      # Material database + CAD ingestion adapter
-├── tpt-physics-solver    # Iterative solvers (CG, GMRES*), time integration, HW dispatch*
-├── tpt-physics-fea       # FEA elements (Tet10, 3D beam*, shell*), nonlinear (Tet4 only), thermal coupling
-├── tpt-physics-dem       # Granular physics: Hertz-Mindlin, spatial hashing, SIMD
-├── tpt-physics-cfd       # Lattice Boltzmann (D2Q9) incompressible flow
-└── tpt-physics-ai        # Differentiable physics wrappers for RL agents
+tpt-phys/
+├── tpt-phys-core          # Material database + CAD→tpt-fem-mesh ingestion adapter
+├── tpt-phys-dem           # Granular physics: Hertz–Mindlin, spatial hashing, SIMD, obstacles
+├── tpt-phys-cfd           # Meshless CFD: Lattice Boltzmann (D2Q9) + native SPH (free-surface)
+├── tpt-phys-fsi           # Partitioned fluid–structure interaction (mapping + coupling driver)
+├── tpt-phys-thermal-struct# Thermal-to-structural coupling (ported from the old FEA crate)
+├── tpt-phys-electro-thermal # Electro-thermal: Joule heating, resistive losses, T(σ)
+├── tpt-phys-orchestrator  # Multiphysics co-simulation (tpt-sci-sim-core) + RL wrappers
+├── tpt-phys-gallery       # Example-gallery runner (core/dem/cfd/fsi/thermal/electro/orchestrator)
+└── tpt-physics-wasm       # WebAssembly playground bindings (DEM + CFD)
 ```
-(\* = experimental: preconditioned GMRES, GPU dispatch backend, 3-D beam and
-shell elements. Validated: Tet10, CG(+precond), nonlinear Tet4, J2 plasticity,
-DEM, LBM cavity/cylinder, differentiable plants.)
+
+(Validated: DEM, LBM cavity/cylinder, SPH dam-break, FSI coupling, electro-thermal
+Joule heating, thermal-struct coupling, orchestrator co-simulation. The
+3-D beam / shell / J2-plasticity / linear-FEA code moved to `tpt-fem`; the
+iterative solvers / GPU dispatch moved to `tpt-fem-solve` / `tpt-phys-*`.)
 
 ## Crate-reuse map
 
 Per the 2026-08-15 re-scope, `tpt-physics` reuses the sibling
 [`tpt-math`](https://github.com/tpt-solutions/tpt-math) and
 [`tpt-fem`](https://github.com/tpt-solutions/tpt-fem) workspaces **directly**
-(no wrapper crates, no re-export shims). Each `tpt-physics-*` crate depends on
+(no wrapper crates, no re-export shims). Each `tpt-phys-*` crate depends on
 exactly the sibling crates it needs:
 
 | Capability | Directly-used sibling crate |
@@ -67,12 +77,12 @@ exactly the sibling crates it needs:
 | Sparse assembly + solve | `tpt-fem-sparse` |
 | BCs / elasticity / thermal / eigen / solve | `tpt-fem-assembly`, `tpt-fem-elasticity`, `tpt-fem-thermal`, `tpt-fem-eigen`, `tpt-fem-solve` |
 
-Only the genuinely net-new code lives in `tpt-physics-*`: the material
-database, the CAD→`tpt-fem-mesh` ingestion adapter, the iterative solvers
-(CG/GMRES) and time-integration schemes (no iterative/dynamic solver exists in
-the siblings), the quadratic/3D-beam/shell elements, the geometric-nonlinear
-framework, thermal-to-structural coupling, the DEM contact model, the LBM CFD
-solver, and the RL environment wrappers.
+Only the genuinely net-new code lives in `tpt-phys-*`: the material database,
+the CAD→`tpt-fem-mesh` ingestion adapter, the DEM contact model, the LBM and SPH
+CFD solvers, the FSI coupling driver, electro-thermal Joule heating,
+thermal-to-structural coupling, and the multiphysics orchestrator (re-exporting
+`tpt-science`'s `tpt-sci-sim-core` co-simulation engine). FEM, linear solvers
+and GPU dispatch are consumed from `tpt-fem` / `tpt-science` as needed.
 
 ## Building
 
@@ -81,9 +91,10 @@ cargo build --workspace
 cargo test  --workspace
 ```
 
-Requires a Rust toolchain ≥ 1.84. The sibling `tpt-math` and `t-fem` repos
-must be checked out as siblings of this directory (the `[workspace.dependencies]`
-in `Cargo.toml` reference them by relative path).
+Requires a Rust toolchain ≥ 1.84. The sibling `tpt-math`, `tpt-fem`, and
+`tpt-science` repos must be checked out as siblings of this directory (the
+`[workspace.dependencies]` in `Cargo.toml` reference them by relative path).
+`tpt-phys-orchestrator` re-exports `tpt-sci-sim-core` from `tpt-science`.
 
 ## Quickstart
 
@@ -94,33 +105,27 @@ in `Cargo.toml` reference them by relative path).
 # 2. Build, test, and run the example gallery.
 just test                     # cargo test --workspace
 just examples                 # build every example
-cargo run --release --example beam -p tpt-physics-fea
+cargo run --release --example granular_pile -p tpt-phys-dem
 ```
 
-A minimal end-to-end FEA solve via the declarative JSON problem spec
-(`tpt-physics-fea::spec`):
+A minimal DEM drop using the material database and the granular `World`:
 
 ```rust
-use tpt_physics_fea::spec::{DomainSpec, LoadSpec, ProblemSpec, SolverSpec};
+use tpt_phys_core::MaterialRegistry;
+use tpt_phys_dem::particle::Particle;
+use tpt_phys_dem::world::World;
 
-let spec = ProblemSpec {
-    materials: None,
-    material: tpt_physics_fea::spec::MaterialRef::Inline(
-        tpt_physics_core::Material::new("Steel", 200e9, 0.3, 7850.0, 12e-6),
-    ),
-    domain: DomainSpec::Box { min: [0.0,0.0,0.0], max: [1.0,1.0,1.0], n: [4,4,4] },
-    boundary_conditions: tpt_physics_fea::spec::BcSpec {
-        fixed_planes: vec!["y_min".to_string()],
-    },
-    loads: LoadSpec { self_weight: true, gravity: 9.81 },
-    solver: SolverSpec::StaticLinear,
-};
-let solved = spec.solve(&tpt_physics_core::MaterialRegistry::new()).unwrap();
-println!("top settlement = {:.3e} m", solved.free_top_settlement_y);
+let steel = MaterialRegistry::with_defaults().get("Structural Steel").unwrap().clone();
+let ps = vec![Particle::new([0.0, 1.0, 0.0], [0.0; 3], 0.5, steel.density)];
+let mut world = World::new(ps, 2e-4);
+for _ in 0..4000 {
+    world.step();
+}
+println!("kinetic energy = {:.4e} J", world.kinetic_energy());
 ```
 
-The spec round-trips through JSON (`ProblemSpec::from_json` /
-`to_json`), so problems can be authored as data files rather than code.
+Materials round-trip through JSON (`MaterialRegistry::from_json` / `to_json`),
+and the LBM/SPH CFD solvers live in `tpt-phys-cfd`.
 
 ## Validated vs. experimental
 
@@ -130,27 +135,30 @@ full benchmark suite and may need more work before production use.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Tet10 element, CG (+precond), GMRES | ✅ Validated | unit + integration tests |
-| Geometric-nonlinear Tet4, J2 plasticity | ✅ Validated | Total-Lagrangian; Tet4 continuum only |
 | DEM (Hertz–Mindlin, SIMD, >100k) | ✅ Validated | multiple physics tests |
 | LBM (Poiseuille, flow-past-cylinder) | ✅ Validated | analytic + shedding benchmarks |
-| Differentiable plants (oscillator, pendulum) | ✅ Validated | analytic Jacobian match |
-| Declarative JSON problem spec | ✅ Validated | self-weight box solves |
+| SPH (free-surface dam break) | ✅ Validated | WCSPH; stays bounded, settles |
+| FSI coupling driver | ✅ Validated | explicit + relaxed sub-iterations; lumped structure |
+| Thermal-to-structural coupling | ✅ Validated | `thermal_load_vector` integration test |
+| Electro-thermal Joule heating | ✅ Validated | heats under load, self-limits |
+| Multiphysics co-simulation (orchestrator) | ✅ Validated | `SubModel` adapters + `Simulation` step |
+| Differentiable plants (oscillator, pendulum) | ✅ Validated | analytic Jacobian match (in `tpt-phys-orchestrator`) |
 | Cohesive bonds + inter-particle heat | ✅ Validated | new in this pass |
-| 3-D beam (Euler–Bernoulli) element | ⚠️ Experimental | cantilever verified; no shear/flexible-beam benchmark |
-| Mindlin–Reissner shell4 | ⚠️ Experimental | rigid-body + simply-supported plate; no Scordelis–Lo |
-| Preconditioned GMRES | ⚠️ Experimental | Jacobi preconditioner; no AMG yet |
-| GPU hardware-dispatch backend | ⚠️ Experimental | real `wgpu` WGSL `matvec` kernel behind `--features gpu`; falls back to `BackendUnavailable` when no adapter |
 | Lid-driven cavity | ⚠️ Experimental | `#[ignore]`d — primary-vortex convergence issue |
+| FSI on a full FEM structure | ⚠️ Experimental | scaffold uses a lumped `LumpedStructure`; real `tpt-fem` elasticity solve is future work |
 
 ## Roadmap
 
 - **Phase 1 — Foundation & FEA MVP:** workspace, solvers, linear/nonlinear
-  FEA. Milestone: simulate the 3D-printed pile cage spacer.
+  FEA. Milestone: simulate the 3D-printed pile cage spacer (now delegated to
+  `tpt-fem`).
 - **Phase 2 — Granular & performance:** DEM (concrete aggregate flow),
   GPU acceleration for >100k particles, nonlinear FEA extensions.
 - **Phase 3 — Fluids & AI:** LBM CFD, differentiable gym environments,
   documentation, benchmarks, and the "Spacer Benchmark" case study.
+- **Phase 5 — DEM / meshless CFD / multiphysics (current):** `tpt-phys-*`
+  rename, FSI + thermal-struct + electro-thermal + orchestrator crates,
+  native SPH solver, and co-simulation wiring via `tpt-sci-sim-core`.
 
 See [`todo.md`](todo.md) for the full checklist.
 
@@ -167,11 +175,12 @@ that asserts the *qualitative physics*, not just "it compiles". Highlights:
 | DEM | `tests/hopper_discharge.rs` | discharge rate follows the Beverloo trend (arching when `D < d`) |
 | DEM | `tests/random_close_packing.rs` | mono-disperse bed packs to the RCP fraction (~0.64) |
 | DEM | `tests/large_scale.rs` | the `rayon` stepper advances **>100k** particles stably |
-| FEA | `tests/cooks_membrane.rs` | J2 plasticity: more compliant than elastic, hardening stiffens |
+| CFD | `src/sph.rs` | SPH dam break stays bounded and settles (weakly compressible) |
 | CFD | `tests/lid_driven_cavity.rs` | lid-driven cavity: **known-failing / `#[ignore]`d** (primary-vortex convergence issue; run `cargo test --release -- --ignored`) |
 | CFD | `tests/flow_past_cylinder.rs` | steady symmetric wake (low Re) and von Kármán shedding (moderate Re) |
-| AI | `lib.rs` | second differentiable plant (pendulum) matches analytic Jacobians |
-| FEA | `examples/pile_cage_spacer.rs` | end-to-end spacer milestone (CAD→mesh→elasticity) |
+| FSI | `src/coupling.rs` | structure displaces under steady flow and relaxes when flow stops |
+| Electro-thermal | `src/lib.rs` | rod heats under voltage, stays finite, self-limits |
+| Orchestrator | `src/adapters.rs` | `Simulation` step drives FSI + electro-thermal + thermal-struct |
 
 ## Benchmarks & examples
 
@@ -180,35 +189,31 @@ harness (replacing the old `eprintln!`-timing examples):
 
 ```sh
 cargo bench --workspace            # all crates
-cargo bench -p tpt-physics-dem    # DEM parallel stepper (>100k particles)
-cargo bench -p tpt-physics-solver # CG / preconditioned-CG / GMRES
-cargo bench -p tpt-physics-fea    # declarative-spec box solve
-cargo bench -p tpt-physics-cfd     # LBM lattice step
+cargo bench -p tpt-phys-dem        # DEM parallel stepper (>100k particles)
+cargo bench -p tpt-phys-cfd        # LBM lattice step + SPH step
+cargo bench -p tpt-phys-fsi        # FSI coupling-iteration driver
 ```
 
 Runnable examples (see [`docs/GALLERY.md`](docs/GALLERY.md) for the full
 index, or run `./scripts/run_gallery.sh`):
 
 ```sh
-cargo run --release --example beam          -p tpt-physics-fea   # cantilever tip deflection
-cargo run --release --example cavity        -p tpt-physics-cfd   # lid-driven cavity
-cargo run --release --example granular_pile -p tpt-physics-dem   # settling pile
-cargo run --release --example rl_pendulum  -p tpt-physics-ai    # differentiable env + Jacobians
-cargo run --release --example gradient_opt -p tpt-physics-ai    # gradient-based control opt
+cargo run --release --example cavity        -p tpt-phys-cfd   # lid-driven cavity
+cargo run --release --example granular_pile -p tpt-phys-dem   # settling pile
+cargo run --release --example rl_pendulum  -p tpt-phys-orchestrator # differentiable env + Jacobians
+cargo run -p tpt-phys-gallery                              # all-domain "hello world" runner
 ```
 
 The DEM `rayon` stepper ([`World::step_par`]) is the CPU-acceleration path for
-large counts; the hardware-dispatch API in `tpt-physics-solver` selects the GPU
-target for problems above its size threshold. With `--features gpu` a real WGSL
-`matvec` compute kernel (`tpt-physics-solver::gpu`) runs on the first available
-adapter; without the feature, or with no GPU present, it returns
-`BackendUnavailable` and callers fall back to the CPU path.
+large counts; multiphysics coupling is orchestrated by `tpt-phys-orchestrator`
+over `tpt-sci-sim-core` from the sibling `tpt-science` repo.
 
 ## Troubleshooting
 
-- **`failed to load source for dependency tpt-math-...`** — the sibling repos
-  are missing. Run `./scripts/bootstrap.sh` (or `scripts/bootstrap.ps1`) and
-  clone `tpt-math` / `tpt-fem` as siblings of this directory.
+- **`failed to load source for dependency tpt-math-...` / `tpt-sci-sim-core`** —
+  a sibling repo is missing. Run `./scripts/bootstrap.sh` (or `scripts/bootstrap.ps1`)
+  and clone `tpt-math` / `tpt-fem` / `tpt-science` as siblings of this directory
+  (`tpt-phys-orchestrator` re-exports `tpt-sci-sim-core` from `tpt-science`).
 - **`lid_driven_cavity` test "fails"** — it is intentionally `#[ignore]`d
   (experimental). Run it explicitly with
   `cargo test --release -- --ignored` if you want to inspect it.

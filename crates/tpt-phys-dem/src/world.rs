@@ -232,12 +232,9 @@ impl World {
 
         for (fi, p) in force.iter_mut().zip(self.particles.iter_mut()) {
             for obs in &self.obstacles {
-                if let Some((f, corr)) = obs.resolve(
-                    p,
-                    self.e_star,
-                    self.friction,
-                    self.restitution,
-                ) {
+                if let Some((f, corr)) =
+                    obs.resolve(p, self.e_star, self.friction, self.restitution)
+                {
                     for k in 0..3 {
                         fi[k] += f[k];
                         p.position[k] += corr[k];
@@ -251,9 +248,7 @@ impl World {
                     if cl > 1e-12 {
                         let inv = 1.0 / cl.sqrt();
                         let (nx, ny, nz) = (corr[0] * inv, corr[1] * inv, corr[2] * inv);
-                        let vn = p.velocity[0] * nx
-                            + p.velocity[1] * ny
-                            + p.velocity[2] * nz;
+                        let vn = p.velocity[0] * nx + p.velocity[1] * ny + p.velocity[2] * nz;
                         if vn < 0.0 {
                             p.velocity[0] -= vn * nx;
                             p.velocity[1] -= vn * ny;

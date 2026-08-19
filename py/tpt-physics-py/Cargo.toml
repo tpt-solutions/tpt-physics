@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.84"
 license = "MIT OR Apache-2.0"
-description = "Python (PyO3) binding over the tpt-physics DEM World and FEA spec solver"
+description = "Python (PyO3) binding over the tpt-phys DEM World (and tpt-phys-core material registry)"
 authors = ["TPT Solutions"]
 publish = false
 
@@ -15,6 +15,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 pyo3 = "0.22"
 serde_json = "1"
-tpt-physics-core = { path = "../crates/tpt-physics-core" }
-tpt-physics-dem = { path = "../crates/tpt-physics-dem" }
-tpt-physics-fea = { path = "../crates/tpt-physics-fea" }
+tpt-phys-core = { path = "../../crates/tpt-phys-core" }
+tpt-phys-dem = { path = "../../crates/tpt-phys-dem" }

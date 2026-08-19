@@ -8,10 +8,14 @@ use tpt_phys_cfd::Lbm2D;
 fn bench_lbm(c: &mut Criterion) {
     let mut group = c.benchmark_group("lbm_step");
     for &(nx, ny) in &[(128usize, 128usize), (256usize, 128usize)] {
-        group.bench_with_input(BenchmarkId::from_parameter(format!("{nx}x{ny}")), &(nx, ny), |b, &(nx, ny)| {
-            let mut lat = Lbm2D::new(nx, ny, 0.53);
-            b.iter(|| lat.step([0.0, 0.0]));
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(format!("{nx}x{ny}")),
+            &(nx, ny),
+            |b, &(nx, ny)| {
+                let mut lat = Lbm2D::new(nx, ny, 0.53);
+                b.iter(|| lat.step([0.0, 0.0]));
+            },
+        );
     }
     group.finish();
 }

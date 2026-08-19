@@ -2,19 +2,21 @@
 $ErrorActionPreference = "Continue"
 
 function Run-Example {
-    param([string]$Crate, [string]$Example)
+    param([string]$Crate, [string]$Example, [string]$Features = "")
     Write-Host "================================================================" -ForegroundColor Cyan
     Write-Host ">>> $Crate :: $Example" -ForegroundColor Cyan
     Write-Host "================================================================"
-    cargo run -q --release --example $Example -p $Crate 2>&1
+    if ($Features -eq "") {
+        cargo run -q --release --example $Example -p $Crate 2>&1
+    } else {
+        cargo run -q --release --example $Example -p $Crate --features $Features 2>&1
+    }
     Write-Host ""
 }
 
-Run-Example tpt-physics-fea beam
-Run-Example tpt-physics-cfd cavity
-Run-Example tpt-physics-dem granular_pile
-Run-Example tpt-physics-ai rl_pendulum
-Run-Example tpt-physics-fea pile_cage_spacer
-Run-Example tpt-physics-fea spacer_benchmark
+Run-Example tpt-phys-cfd cavity
+Run-Example tpt-phys-dem granular_pile
+Run-Example tpt-phys-orchestrator rl_pendulum
+Run-Example tpt-phys-core uq_cantilever uq
 
 Write-Host "Gallery complete."

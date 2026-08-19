@@ -1,13 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/tpt-physics-core",
-    "crates/tpt-physics-solver",
-    "crates/tpt-physics-fea",
-    "crates/tpt-physics-dem",
-    "crates/tpt-physics-cfd",
-    "crates/tpt-physics-ai",
-    "crates/tpt-physics-gallery",
+    "crates/tpt-phys-core",
+    "crates/tpt-phys-dem",
+    "crates/tpt-phys-cfd",
+    "crates/tpt-phys-fsi",
+    "crates/tpt-phys-thermal-struct",
+    "crates/tpt-phys-electro-thermal",
+    "crates/tpt-phys-orchestrator",
+    "crates/tpt-phys-gallery",
     "crates/tpt-physics-wasm",
 ]
 # The Python (PyO3) binding lives outside the Rust workspace so it does not
@@ -44,6 +45,11 @@ tpt-fem-elasticity = { path = "../tpt-fem/crates/tpt-fem-elasticity" }
 tpt-fem-thermal = { path = "../tpt-fem/crates/tpt-fem-thermal" }
 tpt-fem-eigen = { path = "../tpt-fem/crates/tpt-fem-eigen" }
 tpt-fem-solve = { path = "../tpt-fem/crates/tpt-fem-solve" }
+
+# Multi-scale co-simulation engine (sibling `tpt-science` repo). Provides the
+# generic `Simulation`/`SubModel`/`Coupling` orchestration `tpt-phys-orchestrator`
+# re-exports and adapts domain coupling crates into.
+tpt-sci-sim-core = { path = "../tpt-science/crates/tpt-sci-sim-core" }
 
 # Approved, license-vetted third-party dependencies (see deny.toml).
 serde = { version = "1", features = ["derive"] }
