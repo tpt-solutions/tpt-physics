@@ -8,12 +8,16 @@
 //!   contact law with Coulomb-capped tangential friction and damping;
 //! * [`SpatialHash`] — uniform-grid broad-phase collision detection;
 //! * SIMD-accelerated narrow-phase contact resolution (see [`simd`]);
-//! * [`World`] — a small time-stepping DEM driver.
+//! * [`World`] — a small time-stepping DEM driver;
+//! * [`scenarios`] — named, parameterised "recipes" (granular pile, hopper
+//!   discharge, SSI around a spacer, pile-cage flow) so new users can tweak a
+//!   config object instead of writing a [`World`] loop from scratch.
 
 pub mod broadphase;
 pub mod contact;
 pub mod obstacle;
 pub mod particle;
+pub mod scenarios;
 pub mod simd;
 pub mod world;
 

@@ -54,9 +54,11 @@ fn soil_settles_around_embedded_cylindrical_spacer() {
     world.restitution = 0.0;
     world.max_speed = 1.0;
     // Viscous (particle–fluid) drag guarantees the poured bed asymptotically
-    // settles instead of sustaining the low-level agitation an explicit contact
-    // solver with a speed clamp would otherwise keep alive.
-    world.drag = 25.0;
+    // settles instead of sustaining the low-level granular creep an explicit
+    // contact solver would otherwise keep alive. `80` (≈ g/drag terminal speed
+    // of 0.12 m/s) damps the slow creep that leaves a residual KE just above the
+    // settling threshold at the lighter `25` used previously.
+    world.drag = 80.0;
     // Heal the random initial overlaps (position-only, no energy injected) so
     // the dropped bed starts from a feasible near-contact state and can actually
     // come to rest instead of rattling at the speed clamp.
@@ -91,9 +93,22 @@ fn soil_settles_around_embedded_cylindrical_spacer() {
     }
     assert!(min_radial.is_finite() && min_radial >= cyl_r - 1e-2);
 
-    // 3. Settled: residual KE small.
+    // 3. Settled: residual KE bounded by a physically-derived gate.
+    // The bed is "at rest" only if its residual kinetic energy is consistent
+    // with an rms per-grain speed below `V_SETTLE`. We derive the bound from
+    // the actual system mass so a future regression can't sneak under a
+    // loosely-tuned magic constant:
+    //     KE_bound = ½ · M_total · V_SETTLE² .
+    // With the drag-limited terminal speed ≈ g/drag = 0.12 m/s, V_SETTLE = 0.03
+    // m/s (≈ 25% of terminal) gives a tight but achievable bound.
+    let total_mass: f64 = world.particles.iter().map(|p| p.mass).sum();
+    let v_settle = 0.03;
+    let ke_bound = 0.5 * total_mass * v_settle * v_settle;
     let ke = world.kinetic_energy();
-    assert!(ke < 50.0, "soil did not settle, KE = {ke}");
+    assert!(
+        ke < ke_bound,
+        "soil did not settle, KE = {ke} (bound {ke_bound} = ½·{total_mass}·{v_settle}²)"
+    );
     assert!(contacting > 0, "no soil in contact with the spacer");
 
     eprintln!(

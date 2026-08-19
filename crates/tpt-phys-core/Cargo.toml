@@ -32,6 +32,10 @@ uq = ["dep:proptest"]
 name = "uq_cantilever"
 required-features = ["uq"]
 
+[[example]]
+name = "uq_natural_frequency"
+required-features = ["uq"]
+
 [dev-dependencies]
 proptest = { workspace = true }
 

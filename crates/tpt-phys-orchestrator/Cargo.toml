@@ -24,5 +24,10 @@ tpt-phys-thermal-struct = { path = "../tpt-phys-thermal-struct" }
 tpt-phys-electro-thermal = { path = "../tpt-phys-electro-thermal" }
 tracing = { workspace = true }
 
+[dev-dependencies]
+# Enables the `uq` (Monte-Carlo uncertainty quantification) feature for the
+# combined UQ + orchestrator example/tests.
+tpt-phys-core = { path = "../tpt-phys-core", features = ["uq"] }
+
 [lints]
 workspace = true

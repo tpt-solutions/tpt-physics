@@ -1,5 +1,5 @@
 [template]
-include = ["Cargo.toml", "src/**/*", "README.md", "LICENSE-MIT", "LICENSE-APACHE-2.0"]
+include = ["Cargo.toml", "src/**/*", "README.md"]
 
 [placeholders]
 github-user = { type = "string", prompt = "Your GitHub user/org", default = "tpt-solutions" }

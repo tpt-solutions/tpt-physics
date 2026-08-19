@@ -234,7 +234,11 @@ fn unit_tet_mesh() -> Mesh {
 
 /// Build a coupled demo simulation wiring electro-thermal heating into the
 /// thermal-structural model (temperature → thermal-strain load).
-pub fn build_demo_simulation() -> Simulation {
+///
+/// `material` is the structural material used by the thermal-structural model and
+/// `voltage` is the applied electro-thermal rod voltage — both are parameters so
+/// callers (e.g. a Monte-Carlo UQ sweep) can vary them.
+pub fn build_demo_simulation_for(material: &Material, voltage: f64) -> Simulation {
     // FSI: a driven channel whose right wall is the fluid–structure interface.
     let mut fluid = Lbm2D::new(32, 16, 0.6);
     fluid.set_horizontal_walls();
@@ -248,13 +252,12 @@ pub fn build_demo_simulation() -> Simulation {
     // Electro-thermal: a rod under voltage (steady Joule heating).
     let mut rod = ElectroThermalRod::new(11, 300.0);
     rod.dx = 0.01;
-    rod.set_voltage(10.0);
+    rod.set_voltage(voltage);
     rod.convection = 50.0;
     let et = ElectroThermalSubModel::new(rod);
 
     // Thermal-structural: the unit tet driven by thermal strain.
-    let mat = Material::new("Demo", 200e9, 0.3, 7850.0, 12e-6);
-    let ts = ThermalStructSubModel::new(unit_tet_mesh(), mat, 300.0, 1.0, 10.0, 2.0);
+    let ts = ThermalStructSubModel::new(unit_tet_mesh(), material.clone(), 300.0, 1.0, 10.0, 2.0);
 
     let mut sim = Simulation::new();
     let i_et = sim.add_submodel(Box::new(et));
@@ -267,6 +270,12 @@ pub fn build_demo_simulation() -> Simulation {
     });
     sim.add_coupling(i_et, i_ts, coupling);
     sim
+}
+
+/// Build the default coupled demo simulation (nominal steel, 10 V rod).
+pub fn build_demo_simulation() -> Simulation {
+    let mat = Material::new("Demo", 200e9, 0.3, 7850.0, 12e-6);
+    build_demo_simulation_for(&mat, 10.0)
 }
 
 #[cfg(test)]

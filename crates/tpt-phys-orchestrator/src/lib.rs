@@ -15,6 +15,7 @@ pub mod adapters;
 pub mod rl;
 
 pub use adapters::{
-    build_demo_simulation, ElectroThermalSubModel, FsiSubModel, ThermalStructSubModel,
+    build_demo_simulation, build_demo_simulation_for, ElectroThermalSubModel, FsiSubModel,
+    ThermalStructSubModel,
 };
 pub use tpt_sci_sim_core::{Checkpoint, Coupling, CouplingFn, Simulation, SubModel};

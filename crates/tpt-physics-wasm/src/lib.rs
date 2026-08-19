@@ -17,6 +17,7 @@ use tpt_phys_cfd::{Lbm2D, XBoundary};
 use tpt_phys_dem::obstacle::Obstacle;
 use tpt_phys_dem::particle::Particle;
 use tpt_phys_dem::world::World;
+use tpt_phys_electro_thermal::ElectroThermalRod;
 
 fn js_err<E: std::fmt::Display>(e: E) -> JsValue {
     JsValue::from_str(&e.to_string())
@@ -384,6 +385,72 @@ impl CfdSimulation {
 }
 
 // ----------------------------------------------------------------------------
+// Electro-thermal scene
+// ----------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct ElectroThermalScene {
+    #[serde(default = "default_n_nodes")]
+    n: usize,
+    #[serde(default = "default_t_init")]
+    t_init: f64,
+    #[serde(default)]
+    dx: f64,
+    #[serde(default)]
+    voltage: f64,
+    #[serde(default)]
+    convection: f64,
+}
+
+/// A 1-D Joule-heating rod bound for the browser.
+#[wasm_bindgen]
+pub struct ElectroThermalSimulation {
+    rod: ElectroThermalRod,
+}
+
+#[wasm_bindgen]
+impl ElectroThermalSimulation {
+    /// Build a rod from a JSON scene description.
+    ///
+    /// ```json
+    /// { "n": 21, "t_init": 300.0, "dx": 0.01, "voltage": 10.0, "convection": 50.0 }
+    /// ```
+    #[wasm_bindgen(constructor)]
+    pub fn new(json: &str) -> Result<ElectroThermalSimulation, JsValue> {
+        console_error_panic_hook::set_once();
+        let scene: ElectroThermalScene = serde_json::from_str(json).map_err(js_err)?;
+        let mut rod = ElectroThermalRod::new(scene.n.max(2), scene.t_init);
+        if scene.dx > 0.0 {
+            rod.dx = scene.dx;
+        }
+        rod.set_voltage(scene.voltage);
+        rod.convection = scene.convection;
+        Ok(ElectroThermalSimulation { rod })
+    }
+
+    /// Advance the temperature field by `dt` (s).
+    pub fn step(&mut self, dt: f64) {
+        self.rod.step(dt);
+    }
+
+    /// Per-node temperatures (K), length `n`.
+    pub fn temperatures(&self) -> js_sys::Float32Array {
+        let t = self.rod.temperatures();
+        let out: Vec<f32> = t.iter().map(|&x| x as f32).collect();
+        js_sys::Float32Array::from(&out[..])
+    }
+
+    /// Hot-spot temperature (K) — handy convergence/health indicator.
+    pub fn max_temperature(&self) -> f64 {
+        self.rod
+            .temperatures()
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
+}
+
+// ----------------------------------------------------------------------------
 // defaults
 // ----------------------------------------------------------------------------
 
@@ -407,4 +474,10 @@ fn default_restitution() -> f64 {
 }
 fn default_rho0() -> f64 {
     1.0
+}
+fn default_n_nodes() -> usize {
+    21
+}
+fn default_t_init() -> f64 {
+    300.0
 }

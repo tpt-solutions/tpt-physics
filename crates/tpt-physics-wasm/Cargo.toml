@@ -20,6 +20,7 @@ serde_json = "1"
 console_error_panic_hook = "0.1"
 tpt-phys-dem = { path = "../tpt-phys-dem" }
 tpt-phys-cfd = { path = "../tpt-phys-cfd" }
+tpt-phys-electro-thermal = { path = "../tpt-phys-electro-thermal" }
 
 [features]
 default = []

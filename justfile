@@ -41,6 +41,20 @@ setup:
 # End-to-end check used by CI.
 ci: fmt-check clint deny build test
 
+# Generate / verify the README validation-status table (guards "Validated"
+# claims against `#[ignore]`d tests drifting out of sync).
+status:
+    python3 scripts/gen_status.py --check
+
+# Scaffold a new standalone tpt-physics application from the cargo-generate
+# template (one-command "cloned tpt-physics -> running my own project").
+adopt name="my-app":
+    cargo generate --path ./template --name {{name}}
+
+# Alias for `adopt` (same one-command scaffold flow).
+new name="my-app":
+    cargo generate --path ./template --name {{name}}
+
 # Build the WebAssembly web playground (DEM + CFD) and its JS bindings.
 # Output lands in `crates/tpt-physics-wasm/www/pkg`; serve `www/` with any
 # static file server (e.g. `python -m http.server`) to use the playground.

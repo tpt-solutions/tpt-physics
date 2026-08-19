@@ -12,6 +12,30 @@
 //! The reference solver is a 1-D resistive rod (explicit finite differences),
 //! the textbook geometry for Joule heating; the same operators generalise to
 //! an arbitrary mesh via the same `step` contract.
+//!
+//! # Roadmap: 3-D mesh-based path
+//!
+//! The 1-D rod is an intentionally minimal scaffold. The production target is a
+//! general 3-D electro-thermal solve that reuses the sibling `tpt-fem` stack
+//! instead of re-implementing FEM:
+//!
+//! 1. **Geometry / mesh** — build the conductor from `tpt-fem-mesh`
+//!    (`MeshBuilder`, `tpt-fem-mesh-gen` for tet/hex generation).
+//! 2. **Electric potential** — solve `∇·(σ(T) ∇φ) = 0` (steady current) with
+//!    `tpt-fem-sparse` + `tpt-fem-solve`; `σ(T)` is the same temperature-
+//!    dependent conductivity already in [`ElectroThermalRod::conductivity`].
+//! 3. **Joule source** — `q = σ(T) |∇φ|²` projected onto the element
+//!    quadrature (`tpt-fem-quadrature`) as a volumetric heat load.
+//! 4. **Heat equation** — `ρ c_p ∂T/∂t = ∇·(k ∇T) + q − h(T − T_∞)`, solved
+//!    with `tpt-fem-thermal` (steady/transient conduction) and the same
+//!    `tpt-fem-sparse`/`tpt-fem-solve` back-end.
+//! 5. **Coupling** — a few fixed-point iterations between steps 2-4 close the
+//!    `σ(T)` loop (exactly the positive-feedback self-limiting behaviour the
+//!    1-D rod already demonstrates), orchestrated via `tpt-phys-orchestrator`.
+//!
+//! The 1-D [`ElectroThermalRod`] remains the unit-testable smoke test for the
+//! coupled physics; the 3-D path is the validated production implementation to
+//! land in a later phase.
 
 use std::fmt::Debug;
 

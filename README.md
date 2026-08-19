@@ -54,10 +54,12 @@ tpt-phys/
 └── tpt-physics-wasm       # WebAssembly playground bindings (DEM + CFD)
 ```
 
-(Validated: DEM, LBM cavity/cylinder, SPH dam-break, FSI coupling, electro-thermal
-Joule heating, thermal-struct coupling, orchestrator co-simulation. The
-3-D beam / shell / J2-plasticity / linear-FEA code moved to `tpt-fem`; the
-iterative solvers / GPU dispatch moved to `tpt-fem-solve` / `tpt-phys-*`.)
+(Validated: DEM, LBM cylinder wake (cavity is ⚠️ experimental), SPH dam-break,
+electro-thermal Joule heating, thermal-struct coupling, orchestrator
+co-simulation. FSI coupling is ⚠️ experimental — the current driver uses a
+lumped `LumpedStructure`, not a real `tpt-fem`-backed FEM solve. The 3-D beam /
+shell / J2-plasticity / linear-FEA code moved to `tpt-fem`; the iterative
+solvers / GPU dispatch moved to `tpt-fem-solve` / `tpt-phys-*`.)
 
 ## Crate-reuse map
 
@@ -108,6 +110,37 @@ just examples                 # build every example
 cargo run --release --example granular_pile -p tpt-phys-dem
 ```
 
+### Sibling-checkout directory layout
+
+`tpt-physics` pulls `tpt-math`, `tpt-fem`, and `tpt-science` in as **relative
+path** dependencies (see `[workspace.dependencies]` in `Cargo.toml`). They must
+therefore be checked out as siblings of this directory:
+
+```
+your-workspace/
+├── tpt-math/          # https://github.com/tpt-solutions/tpt-math
+├── tpt-fem/           # https://github.com/tpt-solutions/tpt-fem
+├── tpt-science/       # https://github.com/tpt-solutions/tpt-science
+└── tpt-physics/       # this repo
+```
+
+`scripts/bootstrap.sh` / `bootstrap.ps1` (or `just setup`) clones the siblings
+for you. Without them, `cargo build` fails with a `failed to load source for
+dependency …` error.
+
+### Quickstart via template
+
+Scaffold a standalone application that depends on the `tpt-phys-*` crates:
+
+```sh
+cargo generate --path ./template
+cd <project-name>
+cargo run
+```
+
+The template wires the sibling path dependencies for you (see
+[`template/`](template/) and [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+
 A minimal DEM drop using the material database and the granular `World`:
 
 ```rust
@@ -138,7 +171,7 @@ full benchmark suite and may need more work before production use.
 | DEM (Hertz–Mindlin, SIMD, >100k) | ✅ Validated | multiple physics tests |
 | LBM (Poiseuille, flow-past-cylinder) | ✅ Validated | analytic + shedding benchmarks |
 | SPH (free-surface dam break) | ✅ Validated | WCSPH; stays bounded, settles |
-| FSI coupling driver | ✅ Validated | explicit + relaxed sub-iterations; lumped structure |
+| FSI coupling driver | ⚠️ Experimental | explicit + relaxed sub-iterations; **lumped `LumpedStructure`` only — a real `tpt-fem`-backed FEM structure is future work** |
 | Thermal-to-structural coupling | ✅ Validated | `thermal_load_vector` integration test |
 | Electro-thermal Joule heating | ✅ Validated | heats under load, self-limits |
 | Multiphysics co-simulation (orchestrator) | ✅ Validated | `SubModel` adapters + `Simulation` step |
@@ -159,6 +192,16 @@ full benchmark suite and may need more work before production use.
 - **Phase 5 — DEM / meshless CFD / multiphysics (current):** `tpt-phys-*`
   rename, FSI + thermal-struct + electro-thermal + orchestrator crates,
   native SPH solver, and co-simulation wiring via `tpt-sci-sim-core`.
+
+### External-adoption note (path-dependency model)
+
+`tpt-physics` consumes `tpt-math` / `tpt-fem` / `tpt-science` as **relative
+path** dependencies. This is ideal for in-repo development, but it means
+`cargo add tpt-phys-dem` does **not** work for an external user who hasn't
+checked out the three sibling repos alongside this one. Broader external
+adoption (publishing `tpt-physics` to crates.io, or as a standalone git dep)
+requires either publishing the sibling crates and switching to version/git deps,
+or vendoring them — tracked as a roadmap item, not yet implemented.
 
 See [`todo.md`](todo.md) for the full checklist.
 
@@ -194,19 +237,33 @@ cargo bench -p tpt-phys-cfd        # LBM lattice step + SPH step
 cargo bench -p tpt-phys-fsi        # FSI coupling-iteration driver
 ```
 
-Runnable examples (see [`docs/GALLERY.md`](docs/GALLERY.md) for the full
+Runnable examples (see [`GALLERY.md`](GALLERY.md) for the full
 index, or run `./scripts/run_gallery.sh`):
 
 ```sh
 cargo run --release --example cavity        -p tpt-phys-cfd   # lid-driven cavity
 cargo run --release --example granular_pile -p tpt-phys-dem   # settling pile
 cargo run --release --example rl_pendulum  -p tpt-phys-orchestrator # differentiable env + Jacobians
+cargo run --release --example uq_coupled   -p tpt-phys-orchestrator # UQ x co-simulation
 cargo run -p tpt-phys-gallery                              # all-domain "hello world" runner
 ```
 
 The DEM `rayon` stepper ([`World::step_par`]) is the CPU-acceleration path for
 large counts; multiphysics coupling is orchestrated by `tpt-phys-orchestrator`
 over `tpt-sci-sim-core` from the sibling `tpt-science` repo.
+
+## WebAssembly playground
+
+`crates/tpt-physics-wasm` ships a browser playground that runs the DEM and CFD
+solvers directly in WebGL (via `wasm-bindgen`) — no server required. Scenes are
+loaded as JSON and state is pulled back as flat `Float32Array`s for rendering.
+See [`crates/tpt-physics-wasm/README.md`](crates/tpt-physics-wasm/README.md)
+for the build/run flow (`just wasm` / `just serve-wasm`) and the exact
+constructor JSON schema.
+
+> Note: the playground currently exposes **DEM**, **CFD**, and
+> **electro-thermal**; FSI / orchestrator bindings are planned but not yet wired
+> into the frontend.
 
 ## Troubleshooting
 

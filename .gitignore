@@ -6,3 +6,8 @@ Cargo.lock
 Thumbs.db
 .vscode/
 .idea/
+
+# Build-artifact logs (produced by local build/compile runs)
+build_stderr.log
+testcompile.log
+*.log

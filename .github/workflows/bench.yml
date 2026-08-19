@@ -1,0 +1,33 @@
+name: Benchmarks
+
+on:
+  # Track performance regressions over time without blocking PRs (criterion
+  # suites in tpt-phys-dem / tpt-phys-cfd / tpt-phys-fsi are heavy).
+  schedule:
+    - cron: "0 3 * * 1" # weekly, Mondays 03:00 UTC
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  bench:
+    name: Criterion benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Checkout sibling repos (tpt-math, tpt-fem, tpt-science)
+        run: |
+          gh_repo="https://github.com/tpt-solutions"
+          for r in tpt-math tpt-fem tpt-science; do
+            if [ ! -d "../$r" ]; then
+              git clone --depth 1 "$gh_repo/$r" "../$r"
+            fi
+          done
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bench (criterion)
+        run: cargo bench --workspace

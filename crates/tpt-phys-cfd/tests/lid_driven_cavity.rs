@@ -5,10 +5,18 @@
 //! fluid in `+x` just below it, the fastest streamwise flow sits in the upper
 //! half of the cavity, and a return flow (`u_x < 0`) appears near the floor.
 //!
+//! **Status: EXPERIMENTAL / not root-caused.** The moving-lid half-way
+//! bounce-back BC (`Lbm2D::set_moving_lid` + `bounce` in `src/lib.rs`) has
+//! *not* been root-caused against the Ghia et al. reference. The moving-lid
+//! correction is the Ladd bounce-back form, but the primary-vortex convergence
+//! issue is unresolved, so this test is gated behind `#[ignore]` and the
+//! README keeps the cavity in the "Experimental" column. Do **not** silently
+//! flip this or the README claim to "Validated" — either fix the BC or keep
+//! both honestly marked experimental.
+//!
 //! The run is gated behind `#[ignore]` because it needs many steps to reach
 //! steady state and is slow in debug; run it with
-//! `cargo test --release -- --ignored` to validate the primary vortex against
-//! the Ghia et al. reference structure.
+//! `cargo test --release -- --ignored` to inspect the centre-line profile.
 
 use tpt_phys_cfd::Lbm2D;
 

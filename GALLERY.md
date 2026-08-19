@@ -8,37 +8,50 @@ cargo run -p tpt-phys-gallery
 ```
 
 Each line printed is a self-contained "hello world" for one crate. The gallery
-binary lives in `crates/tpt-phys-gallery/` and calls into every workspace
-crate end-to-end.
+binary (`crates/tpt-phys-gallery/src/main.rs`) calls into every workspace crate
+end-to-end. Expanded, interactive versions live in each crate's `examples/`.
 
-## Per-domain hello-world examples
+## Gallery runner (per-domain)
 
-| Domain | Crate | Example | What it shows |
+| Domain | Crate | What it shows |
+| --- | --- | --- |
+| Materials | `tpt-phys-core` | `MaterialRegistry::with_defaults()` — typed material DB + serde |
+| DEM | `tpt-phys-dem` | two particles settling under gravity (Hertz–Mindlin) |
+| CFD | `tpt-phys-cfd` | driven channel (LBM, non-reflective open boundary) |
+| FSI | `tpt-phys-fsi` | partitioned fluid→structure loop (`LumpedStructure`) |
+| Thermal-struct | `tpt-phys-thermal-struct` | `thermal_load_vector` on a tet mesh |
+| Electro-thermal | `tpt-phys-electro-thermal` | `ElectroThermalRod` Joule heating |
+| Orchestrator | `tpt-phys-orchestrator` | `build_demo_simulation` co-simulation |
+
+## Per-crate examples
+
+Run any with `cargo run --example <name> -p <crate>` (add `--release` for speed).
+
+| Example | Crate | Domain | What it shows |
 | --- | --- | --- | --- |
-| Materials | `tpt-phys-core` | `MaterialRegistry::with_defaults()` | Typed material database + serde |
-| DEM | `tpt-phys-dem` | `cargo run --example granular_pile` | Granular settling under gravity |
-| CFD | `tpt-phys-cfd` | `cargo run --example cavity` | Lid-driven cavity / channel flow |
-| FSI | `tpt-phys-fsi` | `crate::coupling` | Partitioned fluid–structure coupling driver |
-| Thermal-struct | `tpt-phys-thermal-struct` | `thermal_load_vector` | Thermal-strain load on a tet mesh |
-| Electro-thermal | `tpt-phys-electro-thermal` | `ElectroThermalRod` | Joule heating of a resistive rod |
-| Orchestrator | `tpt-phys-orchestrator` | `build_demo_simulation` | Multiphysics co-simulation (`SubModel`s) |
-| AI | `tpt-phys-orchestrator` | `cargo run --example rl_pendulum` | Differentiable pendulum + RL wrapper |
+| `cavity` | `tpt-phys-cfd` | CFD | Lid-driven cavity (⚠️ experimental vortex) |
+| `granular_pile` | `tpt-phys-dem` | DEM | Spheres settling under gravity |
+| `rl_pendulum` | `tpt-phys-orchestrator` | AI | Differentiable pendulum + RL wrapper + AD Jacobians |
+| `uq_coupled` | `tpt-phys-orchestrator` | UQ + co-sim | Monte-Carlo material scatter through the coupled `Simulation` |
+| `uq_cantilever` | `tpt-phys-core` | UQ | Monte-Carlo scatter on a cantilever tip (`--features uq`) |
 
-## What the gallery demonstrates
+The full runner is `cargo run -p tpt-phys-gallery`.
 
-- **core** — looks up *Structural Steel* and prints its Young's and shear moduli.
-- **dem** — drops two particles under gravity and reports the settled kinetic
-  energy (Hertz–Mindlin contacts).
-- **cfd** — drives a 2-D channel with the LBM solver (non-reflective open
-  boundary) and prints the centre-line velocity.
-- **fsi** — advances a partitioned fluid–structure loop (fluid traction →
-  lumped-structure displacement → moving-wall feedback).
-- **thermal-struct** — assembles the thermal-strain load vector for a tet.
-- **electro-thermal** — heats a resistive rod under voltage (Joule heating).
-- **orchestrator** — drives a `Simulation` coupling electro-thermal →
-  thermal-structural models.
-- **ai** — evaluates the forward-mode-autodiff Jacobian of the harmonic
-  oscillator and checks it against the analytic value.
+## Validation tests (the real "gallery" of correctness)
+
+`tests/` folders are the authoritative demonstrations — each asserts *qualitative
+physics*, not just "it compiles":
+
+- **DEM** — Hertz contact, spatial-hash pairs, SIMD narrow-phase, settling,
+  pile-cage flow, SSI spacer, hopper discharge, random close packing, cohesive
+  bonds + inter-particle heat, bincode checkpoint resume.
+- **CFD** — Poiseuille (analytic), lid-driven cavity (⚠️ experimental),
+  flow-past-cylinder vortex shedding, SPH dam break (free-surface).
+- **FSI** — partitioned coupling driver: structure displaces under steady flow
+  and relaxes when the flow stops (lumped model).
+- **Electro-thermal** — Joule heating rod: heats under voltage, self-limits.
+- **Thermal-struct** — `thermal_load_vector` integration test.
+- **Orchestrator** — `SubModel` adapters drive a coupled `Simulation`.
 
 ## Benchmarks
 
