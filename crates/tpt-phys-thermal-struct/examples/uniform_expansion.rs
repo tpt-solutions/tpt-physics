@@ -29,15 +29,26 @@ fn main() {
     let sum_uniform: f64 = f_uniform.iter().sum();
     println!("Uniform +100 K rise (single tet)");
     println!("  load vector Σ      : {sum_uniform:.3e}  (≈0 ⇒ stress-free)");
-    println!("  |load| per node    : {:.3e}",
-        f_uniform.iter().map(|v| v.abs()).sum::<f64>() / 4.0);
-    assert!(sum_uniform.abs() < 1e-6, "uniform heating must be load-free");
+    println!(
+        "  |load| per node    : {:.3e}",
+        f_uniform.iter().map(|v| v.abs()).sum::<f64>() / 4.0
+    );
+    assert!(
+        sum_uniform.abs() < 1e-6,
+        "uniform heating must be load-free"
+    );
 
     // Opposite rise flips the sign of the (still self-equilibrated) load.
     let f_hot = tet4_thermal_load(&r, mat.thermal_expansion, 100.0, la, mu).unwrap();
     let f_cold = tet4_thermal_load(&r, mat.thermal_expansion, -100.0, la, mu).unwrap();
-    println!("  |load| at +100 K   : {:.3e}", f_hot.iter().map(|v| v.abs()).sum::<f64>());
-    println!("  |load| at -100 K   : {:.3e}", f_cold.iter().map(|v| v.abs()).sum::<f64>());
+    println!(
+        "  |load| at +100 K   : {:.3e}",
+        f_hot.iter().map(|v| v.abs()).sum::<f64>()
+    );
+    println!(
+        "  |load| at -100 K   : {:.3e}",
+        f_cold.iter().map(|v| v.abs()).sum::<f64>()
+    );
 
     // Degenerate (inverted / duplicate-node) element → None, never NaN.
     let bad = [

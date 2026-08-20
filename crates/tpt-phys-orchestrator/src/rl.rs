@@ -349,6 +349,108 @@ impl DifferentiablePlant for Pendulum {
     }
 }
 
+/// A reduced-order surrogate of the DEM granular-column dynamics
+/// (`tpt_phys_dem::World`): the bulk centre-of-mass height `h` and descent
+/// velocity `v` of a poured pile, with a one-sided floor arrest and a
+/// fluidization forcing `u` (an upward acceleration, e.g. CFD back-coupling)
+/// that levitates the bed. This is the reduced-order *state* an RL agent would
+/// observe/act on for a real DEM pile, differentiated via forward-mode AD so it
+/// can drive model-based / policy-gradient control — closing the gap where
+/// [`DifferentiablePlant`] only had toy oscillator/pendulum models.
+///
+/// State `s = [h, v]`, action `a = [u]`. Continuous dynamics
+/// `ḣ = v`, `v̇ = −(g − u) − c·v`, discretised semi-implicitly with a floor at
+/// `h = 0` (velocity is zeroed on impact).
+pub struct DemBulkPlant {
+    /// Gravitational acceleration `g` (m/s², downward).
+    pub g: f64,
+    /// Bulk contact damping `c` (1/s).
+    pub damp: f64,
+    /// Time step (s).
+    pub dt: f64,
+}
+
+impl DemBulkPlant {
+    /// A poured bed with `g = 9.81`, light bulk damping, `dt = 0.01`.
+    pub fn new() -> Self {
+        DemBulkPlant {
+            g: 9.81,
+            damp: 0.5,
+            dt: 0.01,
+        }
+    }
+}
+
+impl Default for DemBulkPlant {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DifferentiablePlant for DemBulkPlant {
+    const S: usize = 2;
+    const A: usize = 1;
+
+    fn step_prim(&self, s: &[f64], a: &[f64]) -> Vec<f64> {
+        let (h, v) = (s[0], s[1]);
+        let acc = -(self.g - a[0]) - self.damp * v;
+        let v_new = v + self.dt * acc;
+        let mut h_new = h + self.dt * v_new;
+        let mut v_new = v_new;
+        if h_new < 0.0 {
+            h_new = 0.0;
+            v_new = 0.0;
+        }
+        vec![h_new, v_new]
+    }
+
+    fn dynamics_dual<const D: usize>(
+        &self,
+        s: &[Dual<f64, D>],
+        a: &[Dual<f64, D>],
+    ) -> Vec<Dual<f64, D>> {
+        let h = s[0];
+        let v = s[1];
+        let g = Dual::constant(self.g);
+        let damp = Dual::constant(self.damp);
+        let dt = Dual::constant(self.dt);
+        let acc = a[0] - g - damp * v;
+        let v_new = v + dt * acc;
+        let mut h_new = h + dt * v_new;
+        let mut v_out = v_new;
+        if h_new.re() < 0.0 {
+            h_new = Dual::constant(0.0);
+            v_out = Dual::constant(0.0);
+        }
+        vec![h_new, v_out]
+    }
+
+    fn jacobians(&self, state: &[f64], action: &[f64]) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+        // Inputs: h (0), v (1), u (2) → D = 3.
+        let s = [state[0], state[1]];
+        let a = [action[0]];
+        let mut jac = [[0.0_f64; 3]; 2];
+        for k in 0..3 {
+            let mut sd: Vec<Dual<f64, 3>> = s.iter().map(|&val| Dual::constant(val)).collect();
+            let mut ad: Vec<Dual<f64, 3>> = a.iter().map(|&val| Dual::constant(val)).collect();
+            if k < 2 {
+                sd[k] = Dual::variable(s[k], k);
+            } else {
+                ad[0] = Dual::variable(a[0], 2);
+            }
+            let out = self.dynamics_dual(&sd, &ad);
+            for i in 0..2 {
+                jac[i][k] = out[i].du(k);
+            }
+        }
+        let ds = (0..2)
+            .map(|i| (0..2).map(|j| jac[i][j]).collect())
+            .collect();
+        let da = (0..2).map(|i| vec![jac[i][2]]).collect();
+        (ds, da)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,5 +545,91 @@ mod tests {
             let step = env.step(&action);
             assert!(step.observation.iter().all(|v| v.is_finite()));
         }
+    }
+
+    #[test]
+    fn dem_bulk_plant_collapses_and_rests() {
+        let plant = DemBulkPlant::new();
+        // Poured from height 1 m with no forcing: the bulk must fall and come
+        // to rest on the floor (h, v → 0), never penetrating or diverging.
+        let mut s = vec![1.0, 0.0];
+        let a = [0.0];
+        for _ in 0..2000 {
+            s = plant.step_prim(&s, &a);
+            assert!(s[0].is_finite() && s[1].is_finite(), "diverged");
+        }
+        assert!(s[0] < 1e-3, "bulk should rest on floor, h = {}", s[0]);
+        assert!(s[1].abs() < 1e-3, "bulk should be at rest, v = {}", s[1]);
+    }
+
+    #[test]
+    fn dem_bulk_plant_fluidization_levitates() {
+        let plant = DemBulkPlant::new();
+        // A strong upward fluidization (u > g) levitates the bed: it should not
+        // rest on the floor but instead rise/accelerate upward.
+        let mut s = vec![0.5, 0.0];
+        let a = [plant.g + 2.0];
+        for _ in 0..50 {
+            s = plant.step_prim(&s, &a);
+        }
+        assert!(
+            s[1] > 0.0,
+            "bed should be rising under fluidization, v = {}",
+            s[1]
+        );
+    }
+
+    #[test]
+    fn dem_bulk_plant_jacobians_match_finite_difference() {
+        let plant = DemBulkPlant::new();
+        // Check the forward-AD Jacobians against a central finite difference of
+        // the primal transition, at a non-arrested state (h > 0).
+        let s = [0.7, 0.3];
+        let a = [0.4];
+        let (ds, da) = plant.jacobians(&s, &a);
+        let eps = 1e-6;
+
+        let f0 = plant.step_prim(&s, &a);
+        for i in 0..2 {
+            for j in 0..2 {
+                let mut sp = s;
+                sp[j] += eps;
+                let fp = plant.step_prim(&sp, &a);
+                let num = (fp[i] - f0[i]) / eps;
+                assert!(
+                    (ds[i][j] - num).abs() < 1e-4,
+                    "ds[{i}][{j}]: ad={} num={}",
+                    ds[i][j],
+                    num
+                );
+            }
+        }
+        for i in 0..2 {
+            let mut ap = a;
+            ap[0] += eps;
+            let fp = plant.step_prim(&s, &ap);
+            let num = (fp[i] - f0[i]) / eps;
+            assert!(
+                (da[i][0] - num).abs() < 1e-4,
+                "da[{i}][0]: ad={} num={}",
+                da[i][0],
+                num
+            );
+        }
+    }
+
+    #[test]
+    fn dem_bulk_plant_works_in_gym_wrapper() {
+        let plant = DemBulkPlant::new();
+        let mut env = GymWrapper::new(plant, vec![1.0, 0.0], 200);
+        let obs = env.reset();
+        assert_eq!(obs.len(), 2);
+        let action = DVector::from_fn(1, |_| 0.0);
+        for _ in 0..200 {
+            let step = env.step(&action);
+            assert!(step.observation.iter().all(|v| v.is_finite()));
+        }
+        // No forcing → the reduced-order bulk should have settled.
+        assert!(env.state().iter().map(|v| v * v).sum::<f64>() < 1e-2);
     }
 }

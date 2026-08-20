@@ -29,6 +29,8 @@
     <select id="scene">
       <option value="dem_dam">DEM — granular dam break</option>
       <option value="dem_column">DEM — column collapse on floor</option>
+      <option value="sph_dam">SPH — fluid dam break (free-surface)</option>
+      <option value="dem_cfd">DEM+CFD — coupled granular bed &amp; cavity</option>
       <option value="cfd_cavity">CFD — lid-driven cavity</option>
       <option value="cfd_cylinder">CFD — flow past a cylinder</option>
     </select>
@@ -40,7 +42,8 @@
   <canvas id="view"></canvas>
   <footer>
     Built from <code>tpt-physics-wasm</code> (wasm-bindgen). DEM particles are
-    point-sprite spheres coloured by speed; CFD shows the LBM speed field with
+    point-sprite spheres coloured by speed; SPH renders the free-surface
+    particle field (also speed-coloured); CFD shows the LBM speed field with
     velocity-direction arrows. Samples run 1 sub-step per animation frame.
   </footer>
 

@@ -57,6 +57,12 @@ pub struct World {
     /// Extra downward body acceleration (modelling a fluidized/driven flow such
     /// as wet concrete being poured through a cage). Zero by default.
     pub fluidization: f64,
+    /// Uniform external body acceleration `[ax, ay, az]` applied to every
+    /// particle each step, on top of gravity. This is the coupling hook a
+    /// co-simulation driver uses to push the granular phase with a fluid field
+    /// (e.g. CFD-DEM drag), so a partitioned solver can inject its traction
+    /// without forking the integrator. Zero by default.
+    pub external_accel: [f64; 3],
     /// Maximum speed magnitude (m/s). A positive value clamps particle speed
     /// after each step as a stability guard against rare wedged-contact
     /// explosions; `0.0` disables clamping.
@@ -106,6 +112,7 @@ impl World {
             floor_y: 0.0,
             obstacles: Vec::new(),
             fluidization: 0.0,
+            external_accel: [0.0; 3],
             max_speed: 0.0,
             drag: 0.0,
             bond_stiffness: 0.0,
@@ -137,6 +144,10 @@ impl World {
             }
             // Optional fluidized-driving term (extra downward body force).
             fi[1] += self.fluidization * m;
+            // Uniform external body acceleration (CFD-DEM coupling hook).
+            for (k, fik) in fi.iter_mut().enumerate() {
+                *fik += self.external_accel[k] * m;
+            }
         }
 
         let max_r = self
@@ -323,6 +334,7 @@ impl World {
         let grav = self.gravity;
         let floor_y = self.floor_y;
         let fluid = self.fluidization;
+        let ext = self.external_accel;
         let obstacles = &self.obstacles;
 
         let mut forces: Vec<[f64; 3]> = (0..n)
@@ -334,6 +346,9 @@ impl World {
                     f[k] += grav[k] * pi.mass;
                 }
                 f[1] += fluid * pi.mass;
+                for k in 0..3 {
+                    f[k] += ext[k] * pi.mass;
+                }
                 // Floor.
                 let pen = floor_y - (pi.position[1] - pi.radius);
                 if pen > 0.0 {

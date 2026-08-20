@@ -40,6 +40,8 @@ Per the 2026-08-19 re-scope (`spec2.txt`), `tpt-physics` owns only what
 `tpt-fem` doesn't already implement: **DEM**, **meshless CFD** (SPH/LBM), and
 **multiphysics coupling orchestration**. FEM is delegated to `tpt-fem` and
 rigid-body dynamics to `tpt-science`. Crate names carry the `tpt-phys-*` prefix.
+(`spec.txt` is the original Phase-0 design doc this re-scope superseded; kept
+for history, not current scope.)
 
 ```
 tpt-phys/
@@ -51,7 +53,7 @@ tpt-phys/
 ├── tpt-phys-electro-thermal # Electro-thermal: Joule heating, resistive losses, T(σ)
 ├── tpt-phys-orchestrator  # Multiphysics co-simulation (tpt-sci-sim-core) + RL wrappers
 ├── tpt-phys-gallery       # Example-gallery runner (core/dem/cfd/fsi/thermal/electro/orchestrator)
-└── tpt-physics-wasm       # WebAssembly playground bindings (DEM + CFD)
+└── tpt-physics-wasm       # WebAssembly playground bindings (DEM + CFD + SPH)
 ```
 
 (Validated: DEM, LBM cylinder wake (cavity is ⚠️ experimental), SPH dam-break,
@@ -175,7 +177,7 @@ full benchmark suite and may need more work before production use.
 | Thermal-to-structural coupling | ✅ Validated | `thermal_load_vector` integration test |
 | Electro-thermal Joule heating | ✅ Validated | heats under load, self-limits |
 | Multiphysics co-simulation (orchestrator) | ✅ Validated | `SubModel` adapters + `Simulation` step |
-| Differentiable plants (oscillator, pendulum) | ✅ Validated | analytic Jacobian match (in `tpt-phys-orchestrator`) |
+| Differentiable plants (oscillator, pendulum, DEM bulk) | ✅ Validated | analytic/finite-diff Jacobian match (in `tpt-phys-orchestrator`) |
 | Cohesive bonds + inter-particle heat | ✅ Validated | new in this pass |
 | Lid-driven cavity | ⚠️ Experimental | `#[ignore]`d — primary-vortex convergence issue |
 | FSI on a full FEM structure | ⚠️ Experimental | scaffold uses a lumped `LumpedStructure`; real `tpt-fem` elasticity solve is future work |
@@ -254,9 +256,10 @@ over `tpt-sci-sim-core` from the sibling `tpt-science` repo.
 
 ## WebAssembly playground
 
-`crates/tpt-physics-wasm` ships a browser playground that runs the DEM and CFD
-solvers directly in WebGL (via `wasm-bindgen`) — no server required. Scenes are
-loaded as JSON and state is pulled back as flat `Float32Array`s for rendering.
+`crates/tpt-physics-wasm` ships a browser playground that runs the DEM, CFD
+(LBM), and SPH solvers directly in WebGL (via `wasm-bindgen`) — no server
+required. Scenes are loaded as JSON and state is pulled back as flat
+`Float32Array`s for rendering. The `dem_cfd` scene runs a combined DEM+CFD loop.
 See [`crates/tpt-physics-wasm/README.md`](crates/tpt-physics-wasm/README.md)
 for the build/run flow (`just wasm` / `just serve-wasm`) and the exact
 constructor JSON schema.

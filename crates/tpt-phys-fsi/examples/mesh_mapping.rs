@@ -43,8 +43,7 @@ fn main() {
     println!("  structural nodes   : {}", mesh.nodes.len());
     println!("  fluid iface points : {}", iface.len());
     println!();
-    println!("  {:>4} {:>10} {:>10} -> struct node",
-        "idx", "ix", "iy");
+    println!("  {:>4} {:>10} {:>10} -> struct node", "idx", "ix", "iy");
     for (i, p) in iface.iter().enumerate().take(10) {
         println!("  {:>4} {:>10} {:>10} -> {}", i, p.ix, p.iy, map[i]);
     }

@@ -86,7 +86,9 @@ fn main() {
 
     // File-backed checkpoint (what a batch job would write between stages).
     let path = std::env::temp_dir().join("tpt_dem_example_checkpoint.bin");
-    interrupted.save_checkpoint(&path).expect("write checkpoint");
+    interrupted
+        .save_checkpoint(&path)
+        .expect("write checkpoint");
     let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
     let mut resumed = World::load_checkpoint(&path).expect("read checkpoint");

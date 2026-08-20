@@ -491,3 +491,94 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
       co-simulation) — `tpt-phys-core`'s Monte-Carlo UQ and the
       orchestrator's RL/differentiable-plant code exist but aren't shown
       working together, despite being a distinctive combined feature.
+
+## Phase 7: Post-Phase-6 platform review (hygiene, CI, doctest)
+
+> Review opened 2026-08-20. Two Explore agents scouted the whole `crates/`
+> tree, workflows, and root-level clutter; findings were verified by hand
+> (`git ls-files`, diffing workflow files, running the full workspace build/
+> test/clippy/fmt) before acting — two proposed findings turned out to
+> already be resolved and are noted as non-findings below. Full write-up:
+> `C:\Users\phill\.claude\plans\review-platform-for-bugs-shimmering-pixel.md`.
+
+### P0 — Bugs / correctness (fixed)
+- [x] `[BUG]` `build_stderr.log`/`testcompile.log` were still tracked in git
+      despite being `.gitignore`d since Phase 6 (the ignore entry was added
+      but the files were never `git rm --cached`'d) — untracked both.
+- [x] `[BUG]` A stray, non-workspace-member `lib.rs` sat at the repo root —
+      dead doc comments for the old `tpt-physics-ai` Gym/RL wrapper, left
+      over from the Phase 5 rename that ported its live code into
+      `tpt-phys-orchestrator/src/rl.rs`. Deleted.
+- [x] `[BUG]` `.github/workflows/deny.yml` ("license-audit") duplicated the
+      `deny` job already in `ci.yml`, using a slower non-cached
+      `cargo install cargo-deny` and checking only `licenses bans sources`
+      (silently omitting `advisories`) — a weaker, redundant second source of
+      truth. Deleted; `ci.yml`'s `deny` job (which already runs
+      `check advisories` separately from `check bans licenses sources`) is
+      canonical.
+- [x] `[BUG]` `crates/tpt-phys-core/src/uq.rs`'s module-doc doctest
+      (`#[cfg(feature = "uq")]`) imported the pre-rename crate name
+      `tpt_physics_core` instead of `tpt_phys_core` — a Phase-5 rename miss
+      that broke `cargo test --workspace --features uq` / any `--all-features`
+      CI run. Fixed; `cargo test -p tpt-phys-core --doc --features uq` passes.
+- [x] `[BUG]` `crates/tpt-phys-fsi/examples/compliant_wall.rs` had an unused
+      `XBoundary` import — harmless locally, but `ci.yml` sets
+      `RUSTFLAGS: "-D warnings"` workspace-wide, so this would fail CI's
+      plain `cargo build --workspace --all-targets` step. Fixed.
+
+### P1 — Hardening (fixed)
+- [x] `[GAP]` `crates/tpt-phys-gallery/src/main.rs`'s `demo_core()` called
+      `reg.get("Structural Steel").expect("present")` — a silent rename of
+      that key in `MaterialRegistry::with_defaults()` would panic with no
+      useful message. Gave it a message naming the actual invariant.
+- [x] `[GAP]` `spec.txt` (the superseded Phase-0 design doc) had no pointer
+      from the README explaining its historical/superseded status, unlike
+      `spec2.txt` which is already cited as the current re-scope source.
+      Added a one-line README note.
+
+### Non-findings (proposed, verified false — recorded so they aren't re-raised)
+- `tpt-phys-fsi`'s crate-root doc comment does **not** overclaim FEM-backed
+  structural coupling — it already correctly documents `LumpedStructure` as
+  a scaffold and notes "a real model would back this with a `tpt-fem`
+  elasticity solve." No fix needed.
+- UQ↔orchestrator wiring is **not** standalone/unconnected —
+  `crates/tpt-phys-orchestrator/examples/uq_coupled.rs` already runs
+  `tpt-phys-core`'s Monte-Carlo UQ over the orchestrator's coupled
+  electro-thermal → thermal-structural + FSI `Simulation`, reading hotspot
+  temperature as the scalar response. This was a Phase-6 item already closed.
+
+### Open items carried forward (2026-08-20 follow-up pass)
+
+> Closed this pass: the `cargo fmt` sweep, SPH exposure in the WASM crate, the
+> combined DEM+CFD WASM demo, and a real DEM-backed `DifferentiablePlant`. A
+> net-new `World::external_accel` coupling hook was added to `tpt-phys-dem` to
+> enable partitioned CFD-DEM drag coupling.
+
+- `[CLOSED]` `[AUTO]` `cargo fmt --all -- --check` — the 27 pre-existing
+  formatting diffs across `crates/*/examples` were cleared by a `cargo fmt
+  --all` sweep (CI fmt-gate risk removed).
+- `[GAP]` `tests/lid_driven_cavity.rs` moving-lid bounce-back BC still not
+  root-caused against Ghia et al. reference data (still `#[ignore]`d) — open.
+- `[GAP]` `tpt-phys-electro-thermal` still 1-D-only (resistive-rod finite
+  difference); 3-D mesh-based path not started — open.
+- `[PARTIAL]` `[GAP]` `tpt-physics-wasm` now exposes **SPH** (`Sph2D`) and a
+  **combined DEM+CFD** scene, closing the "only DEM/LBM/electro-thermal" gap.
+  FSI and thermal-struct are still **not** bound to JS — open.
+- `[CLOSED]` `[ADOPT]` Combined DEM+CFD (resolved CFD-DEM) demo added:
+  `examples/coupled_dem_cfd.rs` (one-way fluid→granular drag via
+  `World::external_accel`) plus the `dem_cfd` playground scene. Two-way
+  back-coupling is a follow-up.
+- `[CLOSED]` `[ADOPT]` `DifferentiablePlant` backed by a real DEM reduced-order
+  state added — `DemBulkPlant` in `tpt-phys-orchestrator/src/rl.rs` (bulk
+  centre-of-mass height/velocity of a poured pile, floor arrest, fluidization
+  forcing), with forward-AD Jacobians checked against finite differences.
+- `[GAP]` DEM particles remain sphere-only (no clumps/polyhedra); CFD has
+  no turbulence closure or 3-D LBM — open.
+
+### Verification
+- `cargo build --workspace --all-targets`: clean, no warnings.
+- `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+- `cargo test --workspace`: full suite passes (including the fixed
+  `tpt-phys-core` doctest).
+- `cargo fmt --all -- --check`: clean (the 27 pre-existing diffs were cleared
+  by the fmt sweep this pass; verifies the WASM/rl.rs additions are formatted).

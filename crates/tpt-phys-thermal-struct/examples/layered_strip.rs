@@ -35,7 +35,7 @@ fn main() {
     let t_ref = 20.0;
     // Node order matches add_node calls: bottom first, then top.
     let temps = vec![
-        20.0, 20.0, 20.0, 20.0,    // bottom (ΔT = 0)
+        20.0, 20.0, 20.0, 20.0, // bottom (ΔT = 0)
         120.0, 120.0, 120.0, 120.0, // top (ΔT = +100 K)
     ];
 
@@ -48,11 +48,7 @@ fn main() {
     println!("  nodes              : {n_nodes}  (bottom 0..3 cold, top 4..7 hot)");
     println!("  per-node |load| (x, y, z):");
     for n in 0..n_nodes {
-        let v = [
-            load[3 * n],
-            load[3 * n + 1],
-            load[3 * n + 2],
-        ];
+        let v = [load[3 * n], load[3 * n + 1], load[3 * n + 2]];
         let nrm = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
         if n < 4 {
             bottom_norm += nrm;

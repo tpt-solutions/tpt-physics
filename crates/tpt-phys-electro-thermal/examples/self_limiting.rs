@@ -47,8 +47,11 @@ fn main() {
     println!("    constant σ          : peak rise {const_rise:>8.1} K");
     println!("    (the negative TCR lowers the steady temperature)");
     println!();
-    println!("  σ(300 K) = {:.3e} S/m, σ(400 K) = {:.3e} S/m",
-        metal.conductivity(300.0), metal.conductivity(400.0));
+    println!(
+        "  σ(300 K) = {:.3e} S/m, σ(400 K) = {:.3e} S/m",
+        metal.conductivity(300.0),
+        metal.conductivity(400.0)
+    );
 
     assert!(metal.temperatures().iter().all(|&t| t.is_finite()));
     assert!(constant.temperatures().iter().all(|&t| t.is_finite()));

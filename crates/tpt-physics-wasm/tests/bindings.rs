@@ -6,7 +6,7 @@
 //! These mirror what the WebGL frontend does: build a scene from JSON, step it,
 //! and read scalar/health state back out.
 
-use tpt_physics_wasm::{CfdSimulation, DemSimulation, ElectroThermalSimulation};
+use tpt_physics_wasm::{CfdSimulation, DemSimulation, ElectroThermalSimulation, SphSimulation};
 
 #[test]
 fn dem_scene_builds_steps_and_stays_finite() {
@@ -26,8 +26,15 @@ fn dem_scene_builds_steps_and_stays_finite() {
         sim.step();
     }
     assert!(sim.kinetic_energy().is_finite(), "DEM diverged");
-    assert!(sim.kinetic_energy() > 0.0, "particles should have accelerated");
-    println!("DEM: {} particles, KE = {:.4e} J", sim.count(), sim.kinetic_energy());
+    assert!(
+        sim.kinetic_energy() > 0.0,
+        "particles should have accelerated"
+    );
+    println!(
+        "DEM: {} particles, KE = {:.4e} J",
+        sim.count(),
+        sim.kinetic_energy()
+    );
 }
 
 #[test]
@@ -44,6 +51,27 @@ fn cfd_scene_builds_and_steps() {
         sim.step();
     }
     println!("CFD: {} x {} lattice stepped", sim.nx(), sim.ny());
+}
+
+#[test]
+fn sph_scene_collapses_and_stays_bounded() {
+    let json = r#"{
+        "h": 0.04, "rho0": 1000.0, "c": 20.0, "gamma": 1.0, "mu": 0.5,
+        "gravity": [0, -9.81], "domain": [1.0, 1.0], "dt": 1e-4,
+        "block": {"nx": 15, "ny": 30, "spacing": 0.03, "origin": [0.02, 0.02]}
+    }"#;
+    let mut sim = SphSimulation::new(json).expect("valid SPH scene");
+    assert_eq!(sim.count(), 450);
+    for _ in 0..1000 {
+        sim.step();
+    }
+    assert!(sim.kinetic_energy().is_finite(), "SPH diverged");
+    println!(
+        "SPH: {} particles, h = {:.3}, KE = {:.4e} J",
+        sim.count(),
+        sim.smoothing_length(),
+        sim.kinetic_energy()
+    );
 }
 
 #[test]

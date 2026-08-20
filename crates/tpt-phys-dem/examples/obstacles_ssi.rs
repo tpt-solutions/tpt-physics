@@ -149,9 +149,7 @@ fn main() {
 
     println!();
     println!("  Final state after {stepped} steps:");
-    println!(
-        "    kinetic energy    : {final_ke:.3e} J  (peak during settling {peak_ke:.3e} J)"
-    );
+    println!("    kinetic energy    : {final_ke:.3e} J  (peak during settling {peak_ke:.3e} J)");
     println!(
         "    bed height        : {:.3} m  (y from {min_y:.3} to {max_y:.3})",
         max_y - min_y

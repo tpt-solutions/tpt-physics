@@ -66,16 +66,28 @@ fn main() {
     println!("  body force fx       : {fx:.1e}");
     println!("  after {steps} steps :");
     println!("    mean |u|          : {mean:.5}");
-    println!("    centre velocity   : {:.5}  (analytic {:.5})",
-        prof[ny / 2], analytic(h / 2.0));
+    println!(
+        "    centre velocity   : {:.5}  (analytic {:.5})",
+        prof[ny / 2],
+        analytic(h / 2.0)
+    );
     println!("    R^2 vs parabola   : {r2:.5}");
-    println!("    wall |u|          : {:.2e} / {:.2e} (should be ≈0)",
-        prof[0].abs(), prof[ny - 1].abs());
+    println!(
+        "    wall |u|          : {:.2e} / {:.2e} (should be ≈0)",
+        prof[0].abs(),
+        prof[ny - 1].abs()
+    );
 
     // Physical checks: symmetry, positivity, no-slip, and a near-parabolic fit.
-    assert!(prof[0].abs() < 1e-9 && prof[ny - 1].abs() < 1e-9, "no-slip violated");
+    assert!(
+        prof[0].abs() < 1e-9 && prof[ny - 1].abs() < 1e-9,
+        "no-slip violated"
+    );
     for y in 1..ny / 2 {
-        assert!((prof[y] - prof[ny - 1 - y]).abs() < 1e-6, "profile not symmetric");
+        assert!(
+            (prof[y] - prof[ny - 1 - y]).abs() < 1e-6,
+            "profile not symmetric"
+        );
     }
     assert!(r2 > 0.97, "profile is not parabolic (R^2 = {r2})");
     println!();

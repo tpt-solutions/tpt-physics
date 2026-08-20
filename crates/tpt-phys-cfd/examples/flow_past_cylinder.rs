@@ -78,7 +78,10 @@ fn main() {
     println!("    shedding cycles   : {cycles:.1} over {shed_steps} steps");
     println!("    Strouhal St       : {st:.3}  (classical ≈ 0.2 at these Re)");
 
-    assert!(min_ux < -0.002, "no recirculation bubble formed (min u = {min_ux})");
+    assert!(
+        min_ux < -0.002,
+        "no recirculation bubble formed (min u = {min_ux})"
+    );
     assert!(re > 40.0, "Re too low for shedding");
     println!();
     println!("OK: steady wake + periodic von Kármán shedding detected.");

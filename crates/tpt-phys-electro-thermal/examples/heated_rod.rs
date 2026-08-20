@@ -21,7 +21,10 @@ fn main() {
     println!("  voltage            : 15.0 V");
     println!("  convection coeff   : 50.0 W/m³·K");
     println!();
-    println!("  {:>7} {:>12} {:>14}", "step", "peak T [K]", "Joule P [W/m²]");
+    println!(
+        "  {:>7} {:>12} {:>14}",
+        "step", "peak T [K]", "Joule P [W/m²]"
+    );
 
     let mut last_peak = t0;
     for step in 0..=4000 {
@@ -30,7 +33,9 @@ fn main() {
             last_peak = peak;
             println!(
                 "  {:>7} {:>12.3} {:>14.5}",
-                step, peak, rod.total_joule_power()
+                step,
+                peak,
+                rod.total_joule_power()
             );
         }
         if step < 4000 {
@@ -46,7 +51,10 @@ fn main() {
 
     assert!(rod.temperatures().iter().all(|&t| t.is_finite()));
     assert!(rise > 0.0, "rod must heat under an applied voltage");
-    assert!(final_peak >= last_peak - 1e-6, "temperature should stabilise");
+    assert!(
+        final_peak >= last_peak - 1e-6,
+        "temperature should stabilise"
+    );
     println!();
     println!("OK: Joule heating raises and stabilises the rod temperature.");
 }

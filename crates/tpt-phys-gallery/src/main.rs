@@ -18,7 +18,9 @@ use tpt_phys_fsi::StructuralModel;
 
 fn demo_core() {
     let reg = tpt_phys_core::MaterialRegistry::with_defaults();
-    let steel = reg.get("Structural Steel").expect("present");
+    let steel = reg
+        .get("Structural Steel")
+        .expect("MaterialRegistry::with_defaults() must seed \"Structural Steel\"");
     println!(
         "  core: Structural Steel  E={:.2e} Pa  G={:.2e} Pa",
         steel.youngs_modulus,

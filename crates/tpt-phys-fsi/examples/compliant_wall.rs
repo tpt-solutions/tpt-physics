@@ -10,7 +10,7 @@
 //! Run with: `cargo run --release --example compliant_wall -p tpt-phys-fsi`
 
 use tpt_fem_mesh::MeshBuilder;
-use tpt_phys_cfd::{Lbm2D, XBoundary};
+use tpt_phys_cfd::Lbm2D;
 use tpt_phys_fsi::{FsiDriver, LumpedStructure, StructuralModel};
 
 fn main() {
@@ -34,11 +34,16 @@ fn main() {
     println!("Compliant wall driven by channel flow (partitioned FSI)");
     println!("  lattice            : {nx} x {ny}");
     println!("  structural nodes   : 1 (anchored oscillator, k = 10 N/m)");
-    println!("  substeps = {}, relax = {:.2}, coeff = {:.1e}",
-        driver.substeps, driver.relaxation, driver.coupling_coeff);
+    println!(
+        "  substeps = {}, relax = {:.2}, coeff = {:.1e}",
+        driver.substeps, driver.relaxation, driver.coupling_coeff
+    );
     println!("  (placeholder drag traction — deflection is scaffold-scale)");
     println!();
-    println!("  {:>7} {:>14} {:>14}", "step", "wall defl [m]", "struct E [J]");
+    println!(
+        "  {:>7} {:>14} {:>14}",
+        "step", "wall defl [m]", "struct E [J]"
+    );
 
     for step in 0..=200 {
         if step % 40 == 0 {

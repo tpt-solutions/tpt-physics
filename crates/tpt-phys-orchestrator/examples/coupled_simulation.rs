@@ -39,8 +39,10 @@ fn main() {
     };
 
     println!();
-    println!("  {:>6} {:>14} {:>16} {:>14}",
-        "step", "ET hotspot [K]", "TS |disp| [m]", "FSI |disp| [m]");
+    println!(
+        "  {:>6} {:>14} {:>16} {:>14}",
+        "step", "ET hotspot [K]", "TS |disp| [m]", "FSI |disp| [m]"
+    );
 
     for step in 0..=400 {
         if step % 100 == 0 {
@@ -68,7 +70,10 @@ fn main() {
 
     println!();
     println!("  electro-thermal rise : {rise:.2} K  (Joule heating drives the loop)");
-    assert!(et_final.is_finite() && rise > 0.0, "ET rod must heat under voltage");
+    assert!(
+        et_final.is_finite() && rise > 0.0,
+        "ET rod must heat under voltage"
+    );
     assert!(
         gather(&sim, 1).iter().all(|v| v.is_finite()),
         "thermal-struct diverged"

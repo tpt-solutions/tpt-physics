@@ -4,11 +4,13 @@
 that runs the pure-Rust DEM, CFD, and electro-thermal engines directly via
 WebGL, with no server.
 
-This crate is the repo's WebAssembly front door. It exposes three solvers to
+This crate is the repo's WebAssembly front door. It exposes four solvers to
 JavaScript via [`wasm-bindgen`](https://crates.io/crates/wasm-bindgen):
 
 * **DEM** ([`tpt_phys_dem`]) — a granular `World` you drive step-by-step.
 * **CFD** ([`tpt_phys_cfd`]) — the D2Q9 LBM (`Lbm2D`) solver.
+* **SPH** ([`tpt_phys_cfd`]) — the 2-D weakly-compressible `Sph2D` solver, for
+  free-surface flow the LBM mesh can't represent.
 * **Electro-thermal** ([`tpt_phys_electro_thermal`]) — the 1-D Joule-heating
   `ElectroThermalRod`.
 
@@ -16,9 +18,10 @@ Load a scene (particles/obstacles or a lattice setup) as JSON, advance it
 step-by-step, and pull state back out as flat `Float32Array`s ready to upload
 to a WebGL buffer.
 
-> **Note (2026-08-19):** the playground currently exposes **DEM**, **CFD**, and
-> **electro-thermal**. FSI / orchestrator bindings are planned but not yet wired
-> into the WebGL frontend — see `src/lib.rs` for the exact surface.
+> **Note (2026-08-20):** the playground exposes **DEM**, **CFD**, **SPH**, and
+> **electro-thermal**. FSI / orchestrator / thermal-struct bindings are planned
+> but not yet wired into the WebGL frontend — see `src/lib.rs` for the exact
+> surface.
 
 ## Build
 
@@ -40,6 +43,8 @@ the playground.
   `velocities()`, `temperatures()`, `kinetic_energy()`.
 * `CfdSimulation` — `new(json)`, `step()`, `nx()`, `ny()`, `velocity()`,
   `solid()`.
+* `SphSimulation` — `new(json)`, `step()`, `count()`, `smoothing_length()`,
+  `positions()`, `speeds()`, `densities()`, `kinetic_energy()`.
 * `ElectroThermalSimulation` — `new(json)`, `step(dt)`, `temperatures()`,
   `max_temperature()`.
 
@@ -52,6 +57,13 @@ CFD; node count / voltage / convection for electro-thermal).
 The binding surface is exercised from Rust in `tests/bindings.rs` (build a
 scene from JSON, step it, read scalar state), and live in the browser via
 `www/playground.js`.
+
+`examples/coupled_dem_cfd.rs` is a resolved, one-way **CFD-DEM** coupling demo:
+the LBM fluid (`Lbm2D`) is driven by a body force and its mean x-velocity is
+sampled each step and injected into the DEM bed (`World`) as a uniform drag
+body acceleration via `World::external_accel` — the hook a partitioned
+CFD-DEM solver uses. Two-way back-coupling (granular drag on the fluid) is a
+follow-up; the `dem_cfd` playground scene runs both engines in one loop.
 
 ## License
 

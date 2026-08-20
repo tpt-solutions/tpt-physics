@@ -3,7 +3,7 @@
 // Loads the wasm module built from `tpt-physics-wasm`, drives either the DEM
 // or CFD solver one sub-step per frame, and renders the result with WebGL.
 
-import init, { DemSimulation, CfdSimulation } from "./tpt_physics_wasm.js";
+import init, { DemSimulation, CfdSimulation, SphSimulation } from "./tpt_physics_wasm.js";
 
 // ---------------------------------------------------------------------------
 // Scene builders (return the JSON string the wasm constructors expect)
@@ -71,6 +71,22 @@ function demColumn() {
   });
 }
 
+function sphDamBreak() {
+  // A column of weakly-compressible fluid (SPH) that collapses under gravity —
+  // the free-surface case the LBM mesh can't represent.
+  return JSON.stringify({
+    h: 0.04,
+    rho0: 1000.0,
+    c: 20.0,
+    gamma: 1.0,
+    mu: 0.5,
+    gravity: [0, -9.81],
+    domain: [1.0, 1.0],
+    dt: 1e-4,
+    block: { nx: 40, ny: 70, spacing: 0.025, origin: [0.02, 0.02] },
+  });
+}
+
 function cfdCavity() {
   return JSON.stringify({
     nx: 200,
@@ -99,9 +115,57 @@ function cfdCylinder() {
   });
 }
 
+function demCfdCoupledDem() {
+  // A granular dam break — the DEM phase of the combined CFD-DEM demo.
+  const particles = [];
+  const r = 0.08;
+  const rho = 2600;
+  const nx = 14, ny = 22, nz = 8;
+  const gap = 2.05 * r;
+  for (let i = 0; i < nx; i++)
+    for (let j = 0; j < ny; j++)
+      for (let k = 0; k < nz; k++) {
+        particles.push({
+          position: [-1.2 + i * gap, r + j * gap, -0.6 + k * gap],
+          velocity: [0, 0, 0],
+          radius: r,
+          density: rho,
+        });
+      }
+  return JSON.stringify({
+    dt: 2e-4,
+    e_star: 1e8,
+    friction: 0.4,
+    restitution: 0.1,
+    floor_y: 0.0,
+    max_speed: 6.0,
+    drag: 1.0,
+    particles,
+    obstacles: [{ kind: "plane", point: [0, 0, 0], normal: [0, 1, 0] }],
+  });
+}
+
+function demCfdCoupledCfd() {
+  // A lid-driven cavity — the CFD phase of the combined CFD-DEM demo. The two
+  // run side-by-side in one render loop (one-way demo; two-way back-coupling
+  // lives in the Rust example `coupled_dem_cfd.rs`).
+  return JSON.stringify({
+    nx: 160,
+    ny: 100,
+    tau: 0.53,
+    x_boundary: "periodic",
+    walls: "box",
+    moving_lid: { row: 99, v: 0.06 },
+    rho0: 1.0,
+    u0: [0, 0],
+  });
+}
+
 const SCENES = {
   dem_dam: { kind: "dem", build: demDamBreak },
   dem_column: { kind: "dem", build: demColumn },
+  sph_dam: { kind: "sph", build: sphDamBreak },
+  dem_cfd: { kind: "coupled", build: demCfdCoupledDem, buildCfd: demCfdCoupledCfd },
   cfd_cavity: { kind: "cfd", build: cfdCavity },
   cfd_cylinder: { kind: "cfd", build: cfdCylinder },
 };
@@ -382,6 +446,107 @@ function makeCfdRenderer(gl, canvas) {
 }
 
 // ---------------------------------------------------------------------------
+// SPH renderer — 2-D point sprites mapped from the domain box, coloured by
+// speed and sized by the smoothing length `h`.
+// ---------------------------------------------------------------------------
+
+function makeSphRenderer(gl, canvas) {
+  const prog = program(gl, DEM_VS, DEM_FS);
+  const posBuf = gl.createBuffer();
+  const colBuf = gl.createBuffer();
+  const sizeBuf = gl.createBuffer();
+  const a_pos = gl.getAttribLocation(prog, "a_pos");
+  const a_color = gl.getAttribLocation(prog, "a_color");
+  const a_size = gl.getAttribLocation(prog, "a_size");
+
+  function speedColor(v, maxV) {
+    const t = Math.min(1, v / (maxV || 1));
+    const r = Math.min(1, Math.max(0, 1.5 * t - 0.3));
+    const g = Math.min(1, Math.max(0, 1.3 * t + 0.1));
+    const b = Math.min(1, Math.max(0, 1.0 - 1.4 * t));
+    return [r, g, b];
+  }
+
+  function frame(sim) {
+    sim.step();
+    const n = sim.count();
+    const pos = sim.positions(); // [x, y] * n
+    const speeds = sim.speeds(); // speed * n
+    const h = sim.smoothing_length();
+    const w = canvas.width,
+      h_px = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    // Domain is [0,1]x[0,1]; map to a centred square with small margin.
+    const scale = (Math.min(w, h_px) * 0.9) / 2;
+    const cx = w / 2,
+      cy = h_px / 2;
+
+    const screen = new Float32Array(n * 2);
+    const colors = new Float32Array(n * 3);
+    const sizes = new Float32Array(n);
+    let maxV = 1e-6;
+    for (let i = 0; i < n; i++) maxV = Math.max(maxV, speeds[i]);
+    for (let i = 0; i < n; i++) {
+      const x = pos[i * 2],
+        y = pos[i * 2 + 1];
+      screen[i * 2] = (x - 0.5) * 2 * (scale / (w / 2));
+      screen[i * 2 + 1] = -(y - 0.5) * 2 * (scale / (h_px / 2));
+      const c = speedColor(speeds[i], maxV);
+      colors[i * 3] = c[0];
+      colors[i * 3 + 1] = c[1];
+      colors[i * 3 + 2] = c[2];
+      sizes[i] = Math.max(2, (h / 0.5) * scale * dpr);
+    }
+
+    gl.viewport(0, 0, w, h_px);
+    gl.clearColor(0.04, 0.05, 0.08, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, screen, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(a_pos);
+    gl.vertexAttribPointer(a_pos, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(a_color);
+    gl.vertexAttribPointer(a_color, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, sizes, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(a_size);
+    gl.vertexAttribPointer(a_size, 1, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.POINTS, 0, n);
+    gl.disable(gl.BLEND);
+
+    return { kind: "SPH", n, ke: sim.kinetic_energy(), maxV };
+  }
+
+  return { frame };
+}
+
+// ---------------------------------------------------------------------------
+// Coupled DEM+CFD renderer — runs the DEM bed and the LBM cavity in one loop,
+// drawing the granular phase and reporting both engines' health. One-way demo;
+// the resolved two-way coupling lives in the Rust example `coupled_dem_cfd.rs`.
+// ---------------------------------------------------------------------------
+
+function makeCoupledRenderer(gl, canvas, cfdSim) {
+  const demR = makeDemRenderer(gl, canvas);
+
+  function frame(demSim) {
+    cfdSim.step();
+    const r = demR.frame(demSim);
+    const vel = cfdSim.velocity(); // [ux, uy, speed] * n
+    let cfdVmax = 0;
+    for (let i = 0; i < vel.length; i += 3) cfdVmax = Math.max(cfdVmax, vel[i * 3 + 2]);
+    return { kind: "DEM+CFD", n: r.n, ke: r.ke, maxV: r.maxV, cfdVmax };
+  }
+
+  return { frame };
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
@@ -418,6 +583,13 @@ async function main() {
     if (spec.kind === "dem") {
       sim = new DemSimulation(json);
       renderer = makeDemRenderer(gl, canvas);
+    } else if (spec.kind === "sph") {
+      sim = new SphSimulation(json);
+      renderer = makeSphRenderer(gl, canvas);
+    } else if (spec.kind === "coupled") {
+      sim = new DemSimulation(spec.build());
+      const cfdSim = new CfdSimulation(spec.buildCfd());
+      renderer = makeCoupledRenderer(gl, canvas, cfdSim);
     } else {
       sim = new CfdSimulation(json);
       renderer = makeCfdRenderer(gl, canvas);
@@ -437,6 +609,10 @@ async function main() {
   function fmt(r) {
     if (r.kind === "DEM")
       return `DEM  particles=${r.n}  KE=${r.ke.toFixed(2)} J  vmax=${r.maxV.toFixed(3)} m/s`;
+    if (r.kind === "SPH")
+      return `SPH  particles=${r.n}  KE=${r.ke.toFixed(2)} J  vmax=${r.maxV.toFixed(3)} m/s`;
+    if (r.kind === "DEM+CFD")
+      return `DEM+CFD  particles=${r.n}  KE=${r.ke.toFixed(2)} J  vmax=${r.maxV.toFixed(3)} m/s  cfdVmax=${r.cfdVmax.toFixed(4)} (lu)`;
     return `CFD  grid=${r.nx}x${r.ny}  vmax=${r.maxSpeed.toFixed(4)} (lu)`;
   }
 

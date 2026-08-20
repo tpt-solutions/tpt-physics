@@ -17,12 +17,14 @@ fn main() {
     let s = h / 1.3; // initial particle spacing
     let block = Sph2D::block(15, 30, s, [0.02, 0.02]);
     let mut sim = Sph2D::new(
-        block, h, 1000.0, // ρ₀
-        20.0, // speed of sound c
-        1.0,  // γ (linear Tait — softer, stable for a demo)
-        0.5,  // μ
+        block,
+        h,
+        1000.0,       // ρ₀
+        20.0,         // speed of sound c
+        1.0,          // γ (linear Tait — softer, stable for a demo)
+        0.5,          // μ
         [0.0, -9.81], // gravity
-        [1.0, 1.0], // domain
+        [1.0, 1.0],   // domain
         1e-4,
     );
 
@@ -35,8 +37,10 @@ fn main() {
     println!("  initial column H   : {h0:.3} m,  ρ₀ = 1000 kg/m²");
     println!("  gravity            : -9.81 m/s²");
     println!();
-    println!("  {:>8} {:>10} {:>12} {:>12} {:>10}",
-        "step", "time [s]", "front [m]", "Ritter [m]", "KE [J]");
+    println!(
+        "  {:>8} {:>10} {:>12} {:>12} {:>10}",
+        "step", "time [s]", "front [m]", "Ritter [m]", "KE [J]"
+    );
 
     let n_steps = 4_000;
     let sample = 500;
@@ -63,8 +67,10 @@ fn main() {
     let mean_rho = sim.mean_density();
     println!();
     println!("  mean density       : {mean_rho:.1} kg/m² (≈ ρ₀ = 1000, weakly compressible)");
-    println!("  density spread     : ±{:.1}%",
-        100.0 * (mean_rho / 1000.0 - 1.0).abs());
+    println!(
+        "  density spread     : ±{:.1}%",
+        100.0 * (mean_rho / 1000.0 - 1.0).abs()
+    );
 
     assert!(!sim.particles.is_empty());
     assert!(
@@ -73,7 +79,10 @@ fn main() {
             .all(|p| p.x[0] >= -1e-9 && p.x[0] <= 1.0 + 1e-9 && p.rho.is_finite()),
         "particle left domain or density diverged"
     );
-    assert!((mean_rho / 1000.0 - 1.0).abs() < 0.5, "density drifted too far");
+    assert!(
+        (mean_rho / 1000.0 - 1.0).abs() < 0.5,
+        "density drifted too far"
+    );
     println!();
     println!("OK: column collapsed, front advanced, density stayed weakly compressible.");
 }

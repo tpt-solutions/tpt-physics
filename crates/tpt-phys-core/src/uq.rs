@@ -16,8 +16,8 @@
 //! ```
 //! # #[cfg(feature = "uq")]
 //! # {
-//! use tpt_physics_core::material::Material;
-//! use tpt_physics_core::uq::{monte_carlo, tol_band, cantilever_tip_deflection};
+//! use tpt_phys_core::material::Material;
+//! use tpt_phys_core::uq::{monte_carlo, tol_band, cantilever_tip_deflection};
 //! let steel = Material::new("Structural Steel", 200e9, 0.30, 7850.0, 12e-6);
 //! // ±10% on E, ±5% on ν — a typical datasheet scatter.
 //! let strat = tol_band(&steel, 0.10, 0.05, 0.0, 0.0);

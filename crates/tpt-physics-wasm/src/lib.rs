@@ -13,6 +13,7 @@
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
+use tpt_phys_cfd::sph::Sph2D;
 use tpt_phys_cfd::{Lbm2D, XBoundary};
 use tpt_phys_dem::obstacle::Obstacle;
 use tpt_phys_dem::particle::Particle;
@@ -381,6 +382,161 @@ impl CfdSimulation {
             out.push(if self.lbm.solid[i] { 1u8 } else { 0u8 });
         }
         js_sys::Uint8Array::from(&out[..])
+    }
+}
+
+// ----------------------------------------------------------------------------
+// SPH scene (free-surface / weakly-compressible)
+// ----------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct SphBlockSpec {
+    nx: usize,
+    ny: usize,
+    #[serde(default = "default_sph_spacing")]
+    spacing: f64,
+    #[serde(default)]
+    origin: [f64; 2],
+}
+
+fn default_sph_spacing() -> f64 {
+    0.03
+}
+
+#[derive(Deserialize)]
+struct SphScene {
+    h: f64,
+    #[serde(default = "default_sph_rho0")]
+    rho0: f64,
+    #[serde(default = "default_sph_c")]
+    c: f64,
+    #[serde(default = "default_sph_gamma")]
+    gamma: f64,
+    #[serde(default = "default_sph_mu")]
+    mu: f64,
+    #[serde(default = "default_sph_gravity")]
+    gravity: [f64; 2],
+    #[serde(default = "default_sph_domain")]
+    domain: [f64; 2],
+    #[serde(default = "default_sph_dt")]
+    dt: f64,
+    block: SphBlockSpec,
+}
+
+fn default_sph_c() -> f64 {
+    20.0
+}
+fn default_sph_gamma() -> f64 {
+    1.0
+}
+fn default_sph_mu() -> f64 {
+    0.5
+}
+fn default_sph_rho0() -> f64 {
+    1000.0
+}
+fn default_sph_gravity() -> [f64; 2] {
+    [0.0, -9.81]
+}
+fn default_sph_domain() -> [f64; 2] {
+    [1.0, 1.0]
+}
+fn default_sph_dt() -> f64 {
+    1e-4
+}
+
+/// A 2-D weakly-compressible smoothed-particle hydrodynamics (SPH) simulation
+/// bound for the browser — `tpt_phys_cfd::Sph2D`, for free-surface flow that
+/// the mesh/LBM solvers can't represent.
+#[wasm_bindgen]
+pub struct SphSimulation {
+    sim: Sph2D,
+    h: f64,
+}
+
+#[wasm_bindgen]
+impl SphSimulation {
+    /// Build an SPH solver from a JSON scene description (a regular particle
+    /// block that collapses under gravity by default).
+    ///
+    /// ```json
+    /// {
+    ///   "h": 0.04, "rho0": 1000.0, "c": 20.0, "gamma": 1.0, "mu": 0.5,
+    ///   "gravity": [0, -9.81], "domain": [1.0, 1.0], "dt": 1e-4,
+    ///   "block": {"nx": 15, "ny": 30, "spacing": 0.03, "origin": [0.02, 0.02]}
+    /// }
+    /// ```
+    #[wasm_bindgen(constructor)]
+    pub fn new(json: &str) -> Result<SphSimulation, JsValue> {
+        console_error_panic_hook::set_once();
+        let scene: SphScene = serde_json::from_str(json).map_err(js_err)?;
+        let block = Sph2D::block(
+            scene.block.nx,
+            scene.block.ny,
+            scene.block.spacing,
+            scene.block.origin,
+        );
+        let sim = Sph2D::new(
+            block,
+            scene.h,
+            scene.rho0,
+            scene.c,
+            scene.gamma,
+            scene.mu,
+            scene.gravity,
+            scene.domain,
+            scene.dt,
+        );
+        Ok(SphSimulation { sim, h: scene.h })
+    }
+
+    /// Advance the simulation by one step.
+    pub fn step(&mut self) {
+        self.sim.step();
+    }
+
+    /// Number of SPH particles.
+    pub fn count(&self) -> usize {
+        self.sim.particles.len()
+    }
+
+    /// Smoothing length `h` (m) — handy as a uniform point-sprite radius in the
+    /// WebGL view.
+    pub fn smoothing_length(&self) -> f64 {
+        self.h
+    }
+
+    /// Interleaved `[x, y, ...]` per particle (length `2 * count`).
+    pub fn positions(&self) -> js_sys::Float32Array {
+        let mut out = Vec::with_capacity(self.sim.particles.len() * 2);
+        for p in &self.sim.particles {
+            out.push(p.x[0] as f32);
+            out.push(p.x[1] as f32);
+        }
+        js_sys::Float32Array::from(&out[..])
+    }
+
+    /// Per-particle speed `√(vx² + vy²)` (length `count`).
+    pub fn speeds(&self) -> js_sys::Float32Array {
+        let mut out = Vec::with_capacity(self.sim.particles.len());
+        for p in &self.sim.particles {
+            out.push((p.v[0] * p.v[0] + p.v[1] * p.v[1]).sqrt() as f32);
+        }
+        js_sys::Float32Array::from(&out[..])
+    }
+
+    /// Per-particle density `ρ` (length `count`), kg/m².
+    pub fn densities(&self) -> js_sys::Float32Array {
+        let mut out = Vec::with_capacity(self.sim.particles.len());
+        for p in &self.sim.particles {
+            out.push(p.rho as f32);
+        }
+        js_sys::Float32Array::from(&out[..])
+    }
+
+    /// Total kinetic energy (J) — a convergence/health indicator.
+    pub fn kinetic_energy(&self) -> f64 {
+        self.sim.kinetic_energy()
     }
 }
 
