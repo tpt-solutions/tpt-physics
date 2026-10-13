@@ -23,11 +23,47 @@ pub enum Collision {
         /// The magic parameter `Λ > 0`.
         magic: f64,
     },
+    /// Multiple-relaxation-time (Lallemand & Luo 2000) in the D2Q9 moment
+    /// basis `(ρ, e, ε, jx, qx, jy, qy, pxx, pxy)`. The shear moments
+    /// (`pxx`, `pxy`) relax at `1/τ` (fixing the viscosity) and the momentum
+    /// moments at `1/τ` too (so body forcing behaves exactly as in BGK); the
+    /// energy, energy-square and heat-flux ghost modes relax at the given
+    /// free rates, each in `(0, 2)`. With every rate `1/τ` this is BGK.
+    Mrt {
+        /// Energy `e` relaxation rate (bulk viscosity).
+        s_e: f64,
+        /// Energy-square `ε` relaxation rate.
+        s_eps: f64,
+        /// Heat-flux `qx`, `qy` relaxation rate.
+        s_q: f64,
+    },
 }
 
 impl Collision {
     /// TRT with the wall-exact magic parameter `Λ = 3/16`.
     pub const TRT_WALL_EXACT: Collision = Collision::Trt { magic: 3.0 / 16.0 };
+
+    /// MRT with the commonly used ghost-mode rates (Lallemand & Luo 2000).
+    pub const MRT_DEFAULT: Collision = Collision::Mrt {
+        s_e: 1.64,
+        s_eps: 1.54,
+        s_q: 1.9,
+    };
+
+    /// Diagonal moment-space rates `(ρ, e, ε, jx, qx, jy, qy, pxx, pxy)` for
+    /// [`Collision::Mrt`]; `None` for the other operators.
+    pub(crate) fn mrt_rates(self, tau: f64) -> Option<[f64; 9]> {
+        match self {
+            Collision::Mrt { s_e, s_eps, s_q } => {
+                for r in [s_e, s_eps, s_q] {
+                    assert!(r > 0.0 && r < 2.0, "MRT rates must lie in (0, 2)");
+                }
+                let w = 1.0 / tau;
+                Some([0.0, s_e, s_eps, w, s_q, w, s_q, w, w])
+            }
+            _ => None,
+        }
+    }
 
     /// Relaxation rates `(ω⁺, ω⁻)` for the symmetric and antisymmetric parts
     /// at the viscosity-setting relaxation time `tau`.
@@ -39,6 +75,7 @@ impl Collision {
                 let tau_minus = 0.5 + magic / (tau - 0.5);
                 (1.0 / tau, 1.0 / tau_minus)
             }
+            Collision::Mrt { .. } => (1.0 / tau, 1.0 / tau),
         }
     }
 }

@@ -70,31 +70,34 @@ fn cylinder_steady_symmetric_wake() {
 
 #[test]
 fn cylinder_vortex_shedding() {
-    let u_inf = 0.1; // Re = 0.1*12/0.0167 ≈ 72 (Kármán shedding)
-    let nx = 120;
-    let ny = 48;
-    let cx = 30.0;
+    // Re = u·D/ν = 0.15·24/0.0333 ≈ 108 (supercritical Kármán shedding; Re ≈ 72 decayed to steady flow at this blockage). tau = 0.6 keeps BGK
+    // stable with the open inlet/outlet (tau = 0.55 diverged), so the
+    // cylinder is made twice as large to hold the Reynolds number.
+    let u_inf = 0.15;
+    let nx = 200;
+    let ny = 96;
+    let cx = 60.0;
     // Slightly off-centre cylinder + a brief transverse kick break the
     // perfect fore-aft/up-down symmetry so the unstable von Kármán mode can
     // grow (a perfectly symmetric setup can remain steady indefinitely).
     let cy = (ny as f64) / 2.0 + 0.5;
-    let mut sim = Lbm2D::new(nx, ny, 0.55);
+    let mut sim = Lbm2D::new(nx, ny, 0.6);
     sim.set_horizontal_walls();
     sim.set_x_boundary(XBoundary::Inlet(u_inf));
-    sim.add_circle(cx, cy, 6.0);
+    sim.add_circle(cx, cy, 12.0);
     sim.initialise(1.0, [u_inf, 0.0]);
 
     // Warm up, with a short transverse kick to seed the asymmetry.
-    for n in 0..3000 {
+    for n in 0..5000 {
         let f = if n < 300 { [0.0, 5e-5] } else { [0.0, 0.0] };
         sim.step(f);
     }
 
     // Sample the transverse velocity at a wake station over time.
-    let wx = (cx + 14.0) as usize;
+    let wx = (cx + 28.0) as usize;
     let wy = cy as usize;
-    let mut uy_history = Vec::with_capacity(3000);
-    for _ in 0..3000 {
+    let mut uy_history = Vec::with_capacity(2500);
+    for _ in 0..2500 {
         sim.step([0.0, 0.0]);
         uy_history.push(sim.uy[sim.idx(wx, wy)]);
     }

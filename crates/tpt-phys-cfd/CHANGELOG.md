@@ -8,11 +8,18 @@ adheres to [Semantic Versioning](https://semver.org).
 ### Added
 - `Lbm2D::cavity(n, re, u_lid)` benchmark constructor, `ghia` module (Ghia, Ghia
   & Shin 1982 Re 100/400 reference profiles + centreline error metrics),
-  `Collision::{Bgk, Trt}` operators (`Lbm2D::set_collision`), and a
+  `Collision::{Bgk, Trt, Mrt}` operators (`Lbm2D::set_collision`), and a
   `LatticeModel` trait implemented for `D2Q9`.
 - Cavity validation: Re = 100 centrelines within ~1% of Ghia et al. (default
   test) plus `#[ignore]`d refined Re = 100 / 400 runs.
+- `D3Q19` lattice data behind `LatticeModel` (isotropy-tested; no 3-D solver yet).
 - `cavity_mlups` criterion benchmark (serial / parallel, BGK / TRT).
+
+### Fixed
+- `cylinder_vortex_shedding` diverged to NaN with BGK at τ = 0.55; it now runs
+  at τ = 0.6 with the cylinder scaled to Re ≈ 108 (supercritical at this
+  blockage). Note: `Collision::Trt` is *less* stable than BGK for open
+  inlet/outlet flows at low τ (under-relaxed odd modes), so keep BGK there.
 
 ### Changed
 - Solver internals rewritten as Structure-of-Arrays with a fused,

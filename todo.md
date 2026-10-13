@@ -579,7 +579,8 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
   centre-of-mass height/velocity of a poured pile, floor arrest, fluidization
   forcing), with forward-AD Jacobians checked against finite differences.
 - `[GAP]` DEM particles remain sphere-only (no clumps/polyhedra); CFD has
-  no turbulence closure or 3-D LBM — open.
+  no turbulence closure or 3-D LBM solver (D3Q19 lattice data and MRT/TRT
+  collision exist) — open.
 
 ### Verification
 - `cargo build --workspace --all-targets`: clean, no warnings.

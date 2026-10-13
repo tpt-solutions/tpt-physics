@@ -121,6 +121,76 @@ impl LatticeModel for D2Q9 {
     }
 }
 
+/// The 19-velocity three-dimensional lattice (rest, 6 face, 12 edge
+/// neighbours). Provided as lattice data behind [`LatticeModel`]; there is no
+/// 3-D solver yet.
+pub struct D3Q19;
+
+const D3Q19_E: [[i32; 3]; 19] = [
+    [0, 0, 0],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+    [1, 1, 0],
+    [-1, -1, 0],
+    [1, -1, 0],
+    [-1, 1, 0],
+    [1, 0, 1],
+    [-1, 0, -1],
+    [1, 0, -1],
+    [-1, 0, 1],
+    [0, 1, 1],
+    [0, -1, -1],
+    [0, 1, -1],
+    [0, -1, 1],
+];
+
+const D3Q19_W: [f64; 19] = [
+    1.0 / 3.0,
+    1.0 / 18.0,
+    1.0 / 18.0,
+    1.0 / 18.0,
+    1.0 / 18.0,
+    1.0 / 18.0,
+    1.0 / 18.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+    1.0 / 36.0,
+];
+
+/// Opposite-velocity indices: entries come in `(k, k+1)` pairs after rest.
+const D3Q19_OPP: [usize; 19] = [
+    0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15, 18, 17,
+];
+
+impl LatticeModel for D3Q19 {
+    const D: usize = 3;
+    const Q: usize = 19;
+    const CS2: f64 = 1.0 / 3.0;
+
+    fn velocities() -> &'static [[i32; 3]] {
+        &D3Q19_E
+    }
+    fn weights() -> &'static [f64] {
+        &D3Q19_W
+    }
+    fn opposites() -> &'static [usize] {
+        &D3Q19_OPP
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +220,28 @@ mod tests {
     #[test]
     fn d2q9_is_isotropic() {
         check_isotropy::<D2Q9>();
+    }
+
+    #[test]
+    fn d3q19_is_isotropic() {
+        check_isotropy::<D3Q19>();
+    }
+
+    #[test]
+    fn d3q19_equilibrium_conserves_mass_and_momentum() {
+        let (rho, u) = (1.1, [0.05, -0.02, 0.03]);
+        let (mut m0, mut m1) = (0.0, [0.0; 3]);
+        for k in 0..D3Q19::Q {
+            let f = D3Q19::equilibrium_k(k, rho, &u);
+            m0 += f;
+            for (a, m) in m1.iter_mut().enumerate() {
+                *m += f * D3Q19::velocities()[k][a] as f64;
+            }
+        }
+        assert!((m0 - rho).abs() < 1e-12);
+        for a in 0..3 {
+            assert!((m1[a] - rho * u[a]).abs() < 1e-12, "axis {a}");
+        }
     }
 
     #[test]

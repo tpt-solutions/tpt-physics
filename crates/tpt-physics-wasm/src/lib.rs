@@ -281,6 +281,17 @@ enum CollisionSpec {
     #[default]
     Bgk,
     Trt,
+    Mrt,
+}
+
+impl From<CollisionSpec> for tpt_phys_cfd::Collision {
+    fn from(c: CollisionSpec) -> Self {
+        match c {
+            CollisionSpec::Bgk => tpt_phys_cfd::Collision::Bgk,
+            CollisionSpec::Trt => tpt_phys_cfd::Collision::TRT_WALL_EXACT,
+            CollisionSpec::Mrt => tpt_phys_cfd::Collision::MRT_DEFAULT,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -347,8 +358,8 @@ impl CfdSimulation {
     /// For the lid-driven-cavity benchmark use the shortcut
     /// `{"cavity": {"n": 66, "re": 100, "u_lid": 0.1}}` (relaxation time is
     /// derived from the Reynolds number; see
-    /// [`CfdSimulation::cavity_ghia_error`]). `"collision": "trt"` selects
-    /// the two-relaxation-time operator.
+    /// [`CfdSimulation::cavity_ghia_error`]). `"collision": "trt"` / `"mrt"`
+    /// select the two- / multiple-relaxation-time operators.
     #[wasm_bindgen(constructor)]
     pub fn new(json: &str) -> Result<CfdSimulation, JsValue> {
         console_error_panic_hook::set_once();
@@ -363,9 +374,7 @@ impl CfdSimulation {
                 return Err(js_err("cavity Reynolds number too high for this n"));
             }
             let mut lbm = Lbm2D::cavity(c.n, c.re, c.u_lid);
-            if let CollisionSpec::Trt = scene.collision {
-                lbm.set_collision(tpt_phys_cfd::Collision::TRT_WALL_EXACT);
-            }
+            lbm.set_collision(scene.collision.into());
             return Ok(CfdSimulation {
                 lbm,
                 force: [0.0; 2],
@@ -377,9 +386,7 @@ impl CfdSimulation {
         }
 
         let mut lbm = Lbm2D::new(scene.nx, scene.ny, scene.tau);
-        if let CollisionSpec::Trt = scene.collision {
-            lbm.set_collision(tpt_phys_cfd::Collision::TRT_WALL_EXACT);
-        }
+        lbm.set_collision(scene.collision.into());
 
         match scene.x_boundary {
             XBoundarySpec::Inlet => lbm.set_x_boundary(XBoundary::Inlet(scene.inlet_velocity)),

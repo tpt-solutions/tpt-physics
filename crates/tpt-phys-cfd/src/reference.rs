@@ -259,4 +259,40 @@ mod tests {
     }
 
     use crate::Collision;
+
+    #[test]
+    fn mrt_with_uniform_rates_is_bgk() {
+        let tau = 0.8;
+        let w = 1.0 / tau;
+        let mut a = build(13, 9, tau, 0, 2, &[(5, 4)], 0.05);
+        let mut b = a.clone();
+        b.set_collision(Collision::Mrt {
+            s_e: w,
+            s_eps: w,
+            s_q: w,
+        });
+        for _ in 0..30 {
+            a.step([1e-5, 0.0]);
+            b.step([1e-5, 0.0]);
+        }
+        assert_same(&a, &b, 1e-10);
+    }
+
+    #[test]
+    fn mrt_simd_matches_serial_and_conserves_mass() {
+        let mut a = build(23, 11, 0.6, 0, 2, &[], 0.08);
+        a.set_collision(Collision::MRT_DEFAULT);
+        let mut b = a.clone();
+        for _ in 0..50 {
+            a.step([0.0, 0.0]);
+            b.step_par([0.0, 0.0]);
+        }
+        assert_same(&a, &b, 0.0);
+        let mass: f64 = (0..a.nx * a.ny)
+            .filter(|&i| !a.solid[i])
+            .map(|i| a.rho[i])
+            .sum();
+        let fluid = a.solid.iter().filter(|&&s| !s).count() as f64;
+        assert!(mass.is_finite() && (mass - fluid).abs() / fluid < 1e-3);
+    }
 }

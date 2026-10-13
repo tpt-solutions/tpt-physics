@@ -96,7 +96,26 @@ pub(crate) struct Relax {
     pub bgk: bool,
     pub wp: f64,
     pub wm: f64,
+    /// Moment-space rates when the operator is MRT.
+    pub mrt: Option<[f64; 9]>,
 }
+
+/// D2Q9 moment matrix rows `(ρ, e, ε, jx, qx, jy, qy, pxx, pxy)` over the
+/// velocity order `0:rest, 1:E, 2:N, 3:W, 4:S, 5:NE, 6:NW, 7:SW, 8:SE`.
+const MRT_M: [[f64; 9]; 9] = [
+    [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    [-4.0, -1.0, -1.0, -1.0, -1.0, 2.0, 2.0, 2.0, 2.0],
+    [4.0, -2.0, -2.0, -2.0, -2.0, 1.0, 1.0, 1.0, 1.0],
+    [0.0, 1.0, 0.0, -1.0, 0.0, 1.0, -1.0, -1.0, 1.0],
+    [0.0, -2.0, 0.0, 2.0, 0.0, 1.0, -1.0, -1.0, 1.0],
+    [0.0, 0.0, 1.0, 0.0, -1.0, 1.0, 1.0, -1.0, -1.0],
+    [0.0, 0.0, -2.0, 0.0, 2.0, 1.0, 1.0, -1.0, -1.0],
+    [0.0, 1.0, -1.0, 1.0, -1.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -1.0, 1.0, -1.0],
+];
+
+/// Squared row norms of [`MRT_M`] (`M Mᵀ` is diagonal), so `M⁻¹ = Mᵀ N⁻¹`.
+const MRT_NORM2: [f64; 9] = [9.0, 36.0, 36.0, 6.0, 12.0, 6.0, 12.0, 4.0, 4.0];
 
 impl Relax {
     pub fn new(collision: Collision, tau: f64) -> Self {
@@ -105,6 +124,7 @@ impl Relax {
             bgk: matches!(collision, Collision::Bgk),
             wp,
             wm,
+            mrt: collision.mrt_rates(tau),
         }
     }
 }
@@ -121,7 +141,32 @@ fn collide<L: Lane>(f: [L; 9], force: [f64; 2], r: Relax) -> [L; 9] {
     let feq = equilibrium(rho, uxs, uys);
     let wp = L::splat(r.wp);
     let mut out = [L::splat(0.0); 9];
-    if r.bgk {
+    if let Some(s) = r.mrt {
+        // f_post = f − M⁻¹ S M (f − f_eq), M⁻¹ = Mᵀ N⁻¹.
+        let mut d = [L::splat(0.0); 9];
+        for k in 0..9 {
+            d[k] = f[k] - feq[k];
+        }
+        let mut relaxed = [L::splat(0.0); 9];
+        for i in 0..9 {
+            let mut m = L::splat(0.0);
+            for k in 0..9 {
+                if MRT_M[i][k] != 0.0 {
+                    m = m + L::splat(MRT_M[i][k]) * d[k];
+                }
+            }
+            relaxed[i] = L::splat(s[i] / MRT_NORM2[i]) * m;
+        }
+        for k in 0..9 {
+            let mut corr = L::splat(0.0);
+            for i in 0..9 {
+                if MRT_M[i][k] != 0.0 {
+                    corr = corr + L::splat(MRT_M[i][k]) * relaxed[i];
+                }
+            }
+            out[k] = f[k] - corr;
+        }
+    } else if r.bgk {
         for k in 0..9 {
             out[k] = f[k] - wp * (f[k] - feq[k]);
         }

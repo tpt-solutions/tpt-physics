@@ -38,10 +38,10 @@ for _ in 0..2_000 { sim.step(); }
 
 | Module | Description |
 | --- | --- |
-| `lattice` | `D2Q9` definition: velocity set, weights, equilibrium distribution; `LatticeModel` trait (the seam for D3Q19/D3Q27). |
-| `collision` | `Collision` operators: `Bgk` (default) and `Trt { magic }` two-relaxation-time. |
+| `lattice` | `D2Q9` definition: velocity set, weights, equilibrium distribution; `LatticeModel` trait; `D3Q19` lattice data (no 3-D solver yet). |
+| `collision` | `Collision` operators: `Bgk` (default), `Trt { magic }` and `Mrt { .. }` (Lallemand–Luo) relaxation. |
 | `ghia` | Ghia, Ghia & Shin (1982) cavity reference profiles (Re 100 / 400) and centreline error metrics. |
-| `lib` | `Lbm2D` solver — BGK/TRT collision, streaming with half-way bounce-back, macroscopic field recovery, `step` and row-parallel `step_par` (`rayon`, bit-identical); `XBoundary` (periodic / inlet–outlet / open). |
+| `lib` | `Lbm2D` solver — BGK/TRT/MRT collision, streaming with half-way bounce-back, macroscopic field recovery, `step` and row-parallel `step_par` (`rayon`, bit-identical); `XBoundary` (periodic / inlet–outlet / open). |
 | `sph` | `Sph2D` weakly-compressible SPH: Poly6/Spiky/viscous kernels, Tait EOS, uniform-grid neighbour search. |
 
 ### `Lbm2D` features
