@@ -88,16 +88,9 @@ function sphDamBreak() {
 }
 
 function cfdCavity() {
-  return JSON.stringify({
-    nx: 200,
-    ny: 120,
-    tau: 0.53,
-    x_boundary: "periodic",
-    walls: "box",
-    moving_lid: { row: 119, v: 0.08 },
-    rho0: 1.0,
-    u0: [0, 0],
-  });
+  // The validated Ghia et al. (1982) benchmark: Re = 100 on a 66x66 lattice.
+  // `sim.cavity_ghia_error()` returns [u_rms, v_rms] vs the reference data.
+  return JSON.stringify({ cavity: { n: 66, re: 100, u_lid: 0.1 } });
 }
 
 function cfdCylinder() {

@@ -55,3 +55,110 @@ impl D2Q9 {
         feq
     }
 }
+
+/// Velocity-set description shared by every lattice, so solvers and tests can
+/// be written against the *model* rather than the concrete [`D2Q9`] type.
+///
+/// Velocities are padded to three components (`[ex, ey, ez]`, `ez = 0` in 2-D)
+/// so a future D3Q19 / D3Q27 fits the same trait. [`crate::Lbm2D`] is
+/// currently specialised to [`D2Q9`]; this trait is the seam for generalising
+/// it, and it already lets the isotropy conditions be checked uniformly.
+pub trait LatticeModel {
+    /// Spatial dimension `D`.
+    const D: usize;
+    /// Number of discrete velocities `Q`.
+    const Q: usize;
+    /// Squared lattice sound speed `cs²`.
+    const CS2: f64;
+
+    /// The `Q` discrete velocities `[ex, ey, ez]`.
+    fn velocities() -> &'static [[i32; 3]];
+    /// The `Q` quadrature weights.
+    fn weights() -> &'static [f64];
+    /// For each velocity, the index of its opposite (`e_opp = −e`).
+    fn opposites() -> &'static [usize];
+
+    /// Second-order equilibrium `f_k^eq(ρ, u)` for velocity `k`; `u` holds
+    /// `D` components.
+    fn equilibrium_k(k: usize, rho: f64, u: &[f64]) -> f64 {
+        let e = Self::velocities()[k];
+        let mut eu = 0.0;
+        let mut u2 = 0.0;
+        for (d, &ud) in u.iter().enumerate().take(Self::D) {
+            eu += e[d] as f64 * ud;
+            u2 += ud * ud;
+        }
+        let c = 1.0 / Self::CS2;
+        Self::weights()[k] * rho * (1.0 + c * eu + 0.5 * c * c * eu * eu - 0.5 * c * u2)
+    }
+}
+
+const D2Q9_E3: [[i32; 3]; 9] = [
+    [0, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0],
+    [-1, 0, 0],
+    [0, -1, 0],
+    [1, 1, 0],
+    [-1, 1, 0],
+    [-1, -1, 0],
+    [1, -1, 0],
+];
+
+impl LatticeModel for D2Q9 {
+    const D: usize = 2;
+    const Q: usize = 9;
+    const CS2: f64 = D2Q9::CS2;
+
+    fn velocities() -> &'static [[i32; 3]] {
+        &D2Q9_E3
+    }
+    fn weights() -> &'static [f64] {
+        &D2Q9::W
+    }
+    fn opposites() -> &'static [usize] {
+        &D2Q9::OPP
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The isotropy conditions every valid lattice must satisfy:
+    /// `Σw = 1`, `Σw e = 0`, `Σw e_a e_b = cs² δ_ab`, and `OPP` negates `e`.
+    fn check_isotropy<L: LatticeModel>() {
+        let (e, w, opp) = (L::velocities(), L::weights(), L::opposites());
+        assert_eq!((e.len(), w.len(), opp.len()), (L::Q, L::Q, L::Q));
+        assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-14);
+        for a in 0..L::D {
+            let m1: f64 = (0..L::Q).map(|k| w[k] * e[k][a] as f64).sum();
+            assert!(m1.abs() < 1e-14, "first moment {a}: {m1}");
+            for b in 0..L::D {
+                let m2: f64 = (0..L::Q).map(|k| w[k] * (e[k][a] * e[k][b]) as f64).sum();
+                let want = if a == b { L::CS2 } else { 0.0 };
+                assert!((m2 - want).abs() < 1e-14, "second moment {a}{b}: {m2}");
+            }
+        }
+        for (k, ek) in e.iter().enumerate() {
+            for (a, &x) in ek.iter().enumerate() {
+                assert_eq!(e[opp[k]][a], -x);
+            }
+        }
+    }
+
+    #[test]
+    fn d2q9_is_isotropic() {
+        check_isotropy::<D2Q9>();
+    }
+
+    #[test]
+    fn trait_equilibrium_matches_inherent() {
+        let (rho, u) = (1.2, [0.07, -0.04]);
+        let feq = D2Q9::equilibrium(rho, u);
+        for (k, f) in feq.iter().enumerate() {
+            let g = <D2Q9 as LatticeModel>::equilibrium_k(k, rho, &u);
+            assert!((f - g).abs() < 1e-14, "k={k}: {f} vs {g}");
+        }
+    }
+}

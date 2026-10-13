@@ -1,96 +1,70 @@
-//! CFD validation: lid-driven cavity flow (Ghia et al. reference).
+//! CFD validation: lid-driven cavity flow against Ghia, Ghia & Shin (1982).
 //!
 //! A square cavity with three stationary no-slip walls and a top lid moving in
-//! `+x` at speed `U` develops a primary recirculating vortex: the lid drags
-//! fluid in `+x` just below it, the fastest streamwise flow sits in the upper
-//! half of the cavity, and a return flow (`u_x < 0`) appears near the floor.
+//! `+x` develops a primary recirculating vortex. [`Lbm2D::cavity`] builds the
+//! benchmark at a given Reynolds number; [`tpt_phys_cfd::ghia`] samples the
+//! lattice at the published centreline coordinates and reports the error.
 //!
-//! **Status: EXPERIMENTAL / not root-caused.** The moving-lid half-way
-//! bounce-back BC (`Lbm2D::set_moving_lid` + `bounce` in `src/lib.rs`) has
-//! *not* been root-caused against the Ghia et al. reference. The moving-lid
-//! correction is the Ladd bounce-back form, but the primary-vortex convergence
-//! issue is unresolved, so this test is gated behind `#[ignore]` and the
-//! README keeps the cavity in the "Experimental" column. Do **not** silently
-//! flip this or the README claim to "Validated" — either fix the BC or keep
-//! both honestly marked experimental.
-//!
-//! The run is gated behind `#[ignore]` because it needs many steps to reach
-//! steady state and is slow in debug; run it with
-//! `cargo test --release -- --ignored` to inspect the centre-line profile.
+//! Both tests here run by default (a 34×34 lattice is enough to land within
+//! ~1% of the published profiles); the finer Re = 100 and Re = 400 runs live in
+//! `refined_benchmarks.rs` and are `#[ignore]`d for speed.
 
+use tpt_phys_cfd::ghia::{self, u_at, v_at};
 use tpt_phys_cfd::Lbm2D;
 
+const U_LID: f64 = 0.1;
+
+fn run_to_steady(sim: &mut Lbm2D, max_steps: usize) {
+    // Converge on the centreline velocity rather than a fixed step count.
+    let mut last = f64::INFINITY;
+    for chunk in 0..max_steps / 1000 {
+        for _ in 0..1000 {
+            sim.step_par([0.0, 0.0]);
+        }
+        let u = u_at(sim, U_LID, 0.5, 0.25);
+        if chunk > 4 && (u - last).abs() < 1e-8 {
+            return;
+        }
+        last = u;
+    }
+}
+
 #[test]
-#[ignore = "slow steady-state LBM; run with `cargo test --release -- --ignored`"]
-fn lid_driven_cavity_primary_vortex() {
-    let nx = 48;
-    let ny = 48;
-    // Relaxation time `τ` sets the kinematic viscosity `ν = cs²(τ−½)`. Pick a
-    // *steady* regime (`Re = u·L/ν ≈ 100`) that BGK resolves cleanly on this
-    // coarse lattice: `u_lid = 0.03`, `τ = 0.54` ⇒ `ν ≈ 0.0133`, `Re ≈ 108`.
-    // (The previous `Re ≈ 720` setting was unsteady/under-resolved here and
-    // failed to converge to the expected primary vortex.)
-    let tau = 0.54;
-    let u_lid = 0.03;
-
-    let mut sim = Lbm2D::new(nx, ny, tau);
-    sim.set_box_walls();
-    sim.set_moving_lid(ny - 1, u_lid);
-    sim.initialise(1.0, [0.0, 0.0]);
-
-    // The primary vortex is already at steady state by ~60k steps (verified
-    // identical to a 1M-step run); run comfortably past the ≈170k diffusion
-    // timescale so the assertion holds regardless of lattice rounding.
-    for _ in 0..200_000 {
-        sim.step([0.0, 0.0]);
+fn cavity_smoke_primary_vortex_forms() {
+    let mut sim = Lbm2D::cavity(34, 100.0, U_LID);
+    for _ in 0..8000 {
+        sim.step_par([0.0, 0.0]);
     }
-
-    let col = sim.x_velocity_at_column(nx / 2);
-    let interior: Vec<f64> = col[1..ny - 1].to_vec();
-    for v in &interior {
-        assert!(v.is_finite());
-    }
-
-    let beneath_lid = interior[interior.len() - 1];
-    let max_u = interior.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let argmax = interior
+    let (rho, ux, uy) = sim.macro_fields();
+    assert!(rho.iter().chain(ux).chain(uy).all(|v| v.is_finite()));
+    // The lid drags fluid in +x right beneath it ...
+    assert!(u_at(&sim, U_LID, 0.5, 0.95) > 0.4);
+    // ... and a return flow develops in the lower half (primary vortex).
+    assert!(u_at(&sim, U_LID, 0.5, 0.45) < -0.1);
+    // Closed box: total mass is conserved (initial fluid mass = fluid nodes).
+    let fluid = sim.solid.iter().filter(|&&s| !s).count() as f64;
+    let mass: f64 = sim
+        .rho
         .iter()
-        .enumerate()
-        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-        .unwrap()
-        .0;
-    let min_u = interior.iter().cloned().fold(f64::INFINITY, f64::min);
-    let positive = interior.iter().filter(|&&v| v > 0.0).count();
-    let pos_frac = positive as f64 / interior.len() as f64;
-    eprintln!(
-        "DBG cavity u_lid={:.3}: beneath={:.4} max={:.4}@{} min={:.4} pos%={:.1} prof={:?}",
-        u_lid,
-        beneath_lid,
-        max_u,
-        argmax,
-        min_u,
-        100.0 * pos_frac,
-        interior.iter().rev().step_by(4).collect::<Vec<_>>()
+        .zip(&sim.solid)
+        .filter(|(_, &s)| !s)
+        .map(|(r, _)| r)
+        .sum();
+    assert!(
+        (mass - fluid).abs() / fluid < 1e-9,
+        "mass {mass} vs {fluid}"
     );
+}
 
-    // Primary-vortex validation (lid-driven cavity, Ghia et al. reference
-    // structure): the moving lid drags fluid in `+x` just beneath it, the
-    // fastest streamwise flow sits in the upper portion of the cavity, and a
-    // recirculating vortex forms with `u_x > 0` over a substantial span of the
-    // centre-line (the lid-dominated upper region) and a return flow
-    // (`u_x < 0`) near the floor. On this coarse 48×48 lattice the BGK solution
-    // places the vortex centre high (≈0.7 from the floor), so we assert a
-    // meaningful primary-vortex span rather than an exact Ghia fraction.
-    assert!(beneath_lid > 0.01, "lid did not drag fluid: {beneath_lid}");
-    assert!(
-        argmax >= interior.len() / 2,
-        "peak velocity not in upper half: @{}",
-        argmax
-    );
-    assert!(
-        pos_frac > 0.20,
-        "primary vortex too small: u_x>0 over {:.0}% of height",
-        100.0 * pos_frac
-    );
-    assert!(min_u < 0.0, "no return flow at the floor: min_u = {min_u}");
+#[test]
+fn lid_driven_cavity_re100_matches_ghia() {
+    let mut sim = Lbm2D::cavity(34, 100.0, U_LID);
+    run_to_steady(&mut sim, 30_000);
+    let eu = ghia::u_centerline_error(&sim, U_LID, ghia::U_RE100);
+    let ev = ghia::v_centerline_error(&sim, U_LID, ghia::V_RE100);
+    assert!(eu.rms < 0.012 && eu.max < 0.02, "u(y) vs Ghia: {eu:?}");
+    assert!(ev.rms < 0.012 && ev.max < 0.02, "v(x) vs Ghia: {ev:?}");
+    // Primary-vortex signature (Ghia: u_min = -0.2109 @ y = 0.4531).
+    assert!((u_at(&sim, U_LID, 0.5, 0.4531) + 0.2109).abs() < 0.015);
+    assert!((v_at(&sim, U_LID, 0.8047, 0.5) + 0.2453).abs() < 0.015);
 }

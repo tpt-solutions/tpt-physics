@@ -260,11 +260,41 @@ struct MovingLidSpec {
     v: f64,
 }
 
+/// Shortcut for the validated lid-driven-cavity benchmark
+/// (`Lbm2D::cavity`): an `n × n` closed box, lid moving at `u_lid`, with `tau`
+/// derived from the Reynolds number `re`.
+#[derive(Deserialize)]
+struct CavitySpec {
+    n: usize,
+    re: f64,
+    #[serde(default = "default_u_lid")]
+    u_lid: f64,
+}
+
+fn default_u_lid() -> f64 {
+    0.1
+}
+
+#[derive(Deserialize, Clone, Copy, Default)]
+#[serde(rename_all = "lowercase")]
+enum CollisionSpec {
+    #[default]
+    Bgk,
+    Trt,
+}
+
 #[derive(Deserialize)]
 struct CfdScene {
+    #[serde(default)]
     nx: usize,
+    #[serde(default)]
     ny: usize,
+    #[serde(default = "default_tau")]
     tau: f64,
+    #[serde(default)]
+    cavity: Option<CavitySpec>,
+    #[serde(default)]
+    collision: CollisionSpec,
     #[serde(default = "default_x_boundary")]
     x_boundary: XBoundarySpec,
     #[serde(default)]
@@ -285,11 +315,17 @@ struct CfdScene {
     u0: [f64; 2],
 }
 
+fn default_tau() -> f64 {
+    0.6
+}
+
 /// A 2-D Lattice-Boltzmann (D2Q9) simulation bound for the browser.
 #[wasm_bindgen]
 pub struct CfdSimulation {
     lbm: Lbm2D,
     force: [f64; 2],
+    /// `(re, u_lid)` when built from a `cavity` scene.
+    cavity: Option<(f64, f64)>,
 }
 
 #[wasm_bindgen]
@@ -307,12 +343,43 @@ impl CfdSimulation {
     ///   "rho0": 1.0, "u0": [0, 0]
     /// }
     /// ```
+    ///
+    /// For the lid-driven-cavity benchmark use the shortcut
+    /// `{"cavity": {"n": 66, "re": 100, "u_lid": 0.1}}` (relaxation time is
+    /// derived from the Reynolds number; see
+    /// [`CfdSimulation::cavity_ghia_error`]). `"collision": "trt"` selects
+    /// the two-relaxation-time operator.
     #[wasm_bindgen(constructor)]
     pub fn new(json: &str) -> Result<CfdSimulation, JsValue> {
         console_error_panic_hook::set_once();
         let scene: CfdScene = serde_json::from_str(json).map_err(js_err)?;
 
+        if let Some(c) = &scene.cavity {
+            if c.n < 8 || c.re <= 0.0 || c.u_lid <= 0.0 {
+                return Err(js_err("cavity needs n >= 8, re > 0, u_lid > 0"));
+            }
+            let nu = c.u_lid * (c.n as f64 - 2.0) / c.re;
+            if 0.5 + 3.0 * nu <= 0.5 + 1e-4 {
+                return Err(js_err("cavity Reynolds number too high for this n"));
+            }
+            let mut lbm = Lbm2D::cavity(c.n, c.re, c.u_lid);
+            if let CollisionSpec::Trt = scene.collision {
+                lbm.set_collision(tpt_phys_cfd::Collision::TRT_WALL_EXACT);
+            }
+            return Ok(CfdSimulation {
+                lbm,
+                force: [0.0; 2],
+                cavity: Some((c.re, c.u_lid)),
+            });
+        }
+        if scene.nx < 3 || scene.ny < 2 || scene.tau <= 0.5 {
+            return Err(js_err("scene needs nx >= 3, ny >= 2 and tau > 0.5"));
+        }
+
         let mut lbm = Lbm2D::new(scene.nx, scene.ny, scene.tau);
+        if let CollisionSpec::Trt = scene.collision {
+            lbm.set_collision(tpt_phys_cfd::Collision::TRT_WALL_EXACT);
+        }
 
         match scene.x_boundary {
             XBoundarySpec::Inlet => lbm.set_x_boundary(XBoundary::Inlet(scene.inlet_velocity)),
@@ -340,7 +407,30 @@ impl CfdSimulation {
         Ok(CfdSimulation {
             lbm,
             force: scene.force,
+            cavity: None,
         })
+    }
+
+    /// RMS error of the centreline velocity profiles against Ghia, Ghia &
+    /// Shin (1982) as `[u_rms, v_rms]` (velocities normalised by the lid
+    /// speed). Only defined for a `cavity` scene at Re = 100 or 400 that has
+    /// reached steady state; returns an empty array otherwise.
+    pub fn cavity_ghia_error(&self) -> Vec<f64> {
+        use tpt_phys_cfd::ghia;
+        let Some((re, u_lid)) = self.cavity else {
+            return Vec::new();
+        };
+        let (ru, rv) = if (re - 100.0).abs() < 1e-9 {
+            (ghia::U_RE100, ghia::V_RE100)
+        } else if (re - 400.0).abs() < 1e-9 {
+            (ghia::U_RE400, ghia::V_RE400)
+        } else {
+            return Vec::new();
+        };
+        vec![
+            ghia::u_centerline_error(&self.lbm, u_lid, ru).rms,
+            ghia::v_centerline_error(&self.lbm, u_lid, rv).rms,
+        ]
     }
 
     /// Number of lattice nodes in `x`.

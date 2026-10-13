@@ -11,7 +11,7 @@ cargo run -p tpt-phys-gallery
 | --- | --- | --- | --- |
 | Materials & CAD | `tpt-phys-core` | `material_registry`, `cad_ingest`, `uq_natural_frequency` (feature `uq`) | `demo_core` |
 | Discrete elements | `tpt-phys-dem` | `hopper_discharge`, `cohesive_bonds`, `obstacles_ssi`, `heat_conduction`, `checkpoint`, `parallel_step` | `demo_dem` |
-| Fluid (LBM + SPH) | `tpt-phys-cfd` | `cavity`, `poiseuille`, `flow_past_cylinder`, `dam_break_sph` | `demo_cfd` |
+| Fluid (LBM + SPH) | `tpt-phys-cfd` | `cavity`, `poiseuille`, `flow_past_cylinder`, `dam_break_sph` | `demo_cfd`, `demo_cavity` |
 | Fluid–structure | `tpt-phys-fsi` | `compliant_wall`, `mesh_mapping` | `demo_fsi` |
 | Thermal–structural | `tpt-phys-thermal-struct` | `uniform_expansion`, `layered_strip` | `demo_thermal_struct` |
 | Electro-thermal | `tpt-phys-electro-thermal` | `heated_rod`, `self_limiting` | `demo_electro_thermal` |

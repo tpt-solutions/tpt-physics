@@ -197,10 +197,10 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
       shift) term. Verified against analytic Poiseuille flow
       (`crates/tpt-physics-cfd/src/{lib,lattice}.rs`, tested)
 - [x] `[NEW]` Validate: lid-driven cavity flow — `tests/lid_driven_cavity.rs`
-      added. **Currently FAILING:** at steady state the rightward (primary-vortex)
-      region is confined to the top ~10% of the cavity with the bulk flowing
-      leftward — not the expected primary vortex. Likely a moving-lid
-      bounce-back / convergence issue in `tpt-physics-cfd` to investigate.
+      added. **Now PASSING and validated against Ghia, Ghia & Shin (1982)**
+      (Re = 100 / 400 centrelines, `Lbm2D::cavity`, `ghia` module). The earlier
+      "failure" came from the test (off-centre column sampling, no Ghia
+      comparison), not the moving-lid bounce-back, which was correct.
 - [x] `[NEW]` Validate: flow past a cylinder — `tests/flow_past_cylinder.rs`
       PASSES: steady symmetric wake + recirculation at Re≈22, von Kármán vortex
       shedding (u_y swings through zero) at Re≈72.
@@ -557,8 +557,14 @@ TPT Solutions | Dual-licensed MIT / Apache-2.0
 - `[CLOSED]` `[AUTO]` `cargo fmt --all -- --check` — the 27 pre-existing
   formatting diffs across `crates/*/examples` were cleared by a `cargo fmt
   --all` sweep (CI fmt-gate risk removed).
-- `[GAP]` `tests/lid_driven_cavity.rs` moving-lid bounce-back BC still not
-  root-caused against Ghia et al. reference data (still `#[ignore]`d) — open.
+- `[CLOSED]` `tests/lid_driven_cavity.rs` — root-caused: the Ladd moving-lid
+  bounce-back is correct; the old test sampled an off-centre column of an
+  even grid. Re = 100 matches Ghia et al. to 0.3% RMS (66²) / ~0.6% (34², the
+  default test) and Re = 400 to 0.4% (u) / 1.2% (v) at 130²; README row
+  promoted to "Validated". Also: LBM kernel rewritten SoA + `wide` SIMD +
+  row-parallel Rayon (`step_par` 1.8–3.2× faster), `Collision::{Bgk,Trt}`,
+  `LatticeModel` trait (D3Q19 seam), wasm `cavity` scene + `cavity_ghia_error()`,
+  gallery `demo_cavity`.
 - `[GAP]` `tpt-phys-electro-thermal` still 1-D-only (resistive-rod finite
   difference); 3-D mesh-based path not started — open.
 - `[PARTIAL]` `[GAP]` `tpt-physics-wasm` now exposes **SPH** (`Sph2D`) and a

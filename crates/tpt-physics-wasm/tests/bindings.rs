@@ -54,6 +54,25 @@ fn cfd_scene_builds_and_steps() {
 }
 
 #[test]
+fn cfd_cavity_scene_matches_ghia() {
+    let mut sim = CfdSimulation::new(r#"{"cavity": {"n": 34, "re": 100}}"#).expect("cavity scene");
+    assert_eq!((sim.nx(), sim.ny()), (34, 34));
+    for _ in 0..8000 {
+        sim.step();
+    }
+    let err = sim.cavity_ghia_error();
+    assert_eq!(err.len(), 2);
+    // Coarse 34x34 lattice: the profiles must already be close to Ghia.
+    assert!(
+        err[0] < 0.05 && err[1] < 0.05,
+        "Ghia error too large: {err:?}"
+    );
+    // A non-cavity scene reports no benchmark error.
+    let plain = CfdSimulation::new(r#"{"nx": 16, "ny": 8}"#).expect("plain scene");
+    assert!(plain.cavity_ghia_error().is_empty());
+}
+
+#[test]
 fn sph_scene_collapses_and_stays_bounded() {
     let json = r#"{
         "h": 0.04, "rho0": 1000.0, "c": 20.0, "gamma": 1.0, "mu": 0.5,

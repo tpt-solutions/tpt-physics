@@ -1,53 +1,53 @@
-//! Hello-world for `tpt-phys-cfd`: a lid-driven cavity.
+//! Hello-world for `tpt-phys-cfd`: the lid-driven cavity benchmark.
 //!
-//! A fully-enclosed square cavity with its top lid moving in `+x` drives a
-//! recirculating flow. This example runs the LBM solver and reports the
-//! developed flow statistics. (The cavity primary-vortex benchmark is
-//! *experimental* — see the crate docs — so this prints diagnostics rather
-//! than asserting a target vortex location.)
+//! A fully-enclosed square cavity whose top lid moves in `+x` drives a
+//! primary recirculating vortex. This runs the D2Q9 LBM solver to steady
+//! state and compares the centreline velocity profiles with Ghia, Ghia &
+//! Shin (1982).
 //!
-//! Run with: `cargo run --example cavity --release`
+//! Run with: `cargo run --example cavity --release [n] [re]`
 
-use tpt_phys_cfd::{Lbm2D, XBoundary};
+use std::time::Instant;
+use tpt_phys_cfd::{ghia, Lbm2D};
 
 fn main() {
-    let nx = 64;
-    let ny = 64;
-    let tau = 0.53; // low viscosity ⇒ moderate Reynolds number
+    let mut args = std::env::args().skip(1);
+    let n: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(66);
+    let re: f64 = args.next().and_then(|a| a.parse().ok()).unwrap_or(100.0);
     let u_lid = 0.1;
 
-    let mut lbm = Lbm2D::new(nx, ny, tau);
-    lbm.set_box_walls(); // enclose all four sides
-    lbm.set_moving_lid(ny - 1, u_lid); // top row moves in +x
-    lbm.set_x_boundary(XBoundary::Periodic); // periodic left/right (channel-like)
-
-    let steps = 2000;
+    let mut lbm = Lbm2D::cavity(n, re, u_lid);
+    let steps = 40 * n * n; // several diffusion times
+    let t0 = Instant::now();
     for _ in 0..steps {
-        lbm.step([0.0, 0.0]);
+        lbm.step_par([0.0, 0.0]);
     }
+    let dt = t0.elapsed().as_secs_f64();
+    let mlups = (steps * n * n) as f64 / dt / 1e6;
 
-    // Report max speed and the location of the fastest interior node.
-    let mut vmax = 0.0_f64;
-    let mut vmax_ix = 0;
-    let mut vmax_iy = 0;
-    for iy in 0..ny {
-        for ix in 0..nx {
-            let i = lbm.idx(ix, iy);
-            if lbm.solid[i] {
-                continue;
-            }
-            let v = (lbm.ux[i].powi(2) + lbm.uy[i].powi(2)).sqrt();
-            if v > vmax {
-                vmax = v;
-                vmax_ix = ix;
-                vmax_iy = iy;
-            }
-        }
+    let (ru, rv) = if re < 250.0 {
+        (ghia::U_RE100, ghia::V_RE100)
+    } else {
+        (ghia::U_RE400, ghia::V_RE400)
+    };
+    let eu = ghia::u_centerline_error(&lbm, u_lid, ru);
+    let ev = ghia::v_centerline_error(&lbm, u_lid, rv);
+
+    println!(
+        "Lid-driven cavity ({n}x{n}, Re={re}, tau={:.4}, u_lid={u_lid})",
+        lbm.tau
+    );
+    println!("  steps / speed        : {steps} steps, {mlups:.1} MLUPS");
+    println!(
+        "  u(y) at x=0.5 vs Ghia: rms {:.4}, max {:.4}",
+        eu.rms, eu.max
+    );
+    println!(
+        "  v(x) at y=0.5 vs Ghia: rms {:.4}, max {:.4}",
+        ev.rms, ev.max
+    );
+    println!("  y        u_lbm    u_ghia");
+    for &(y, r) in ru {
+        println!("  {y:.4}  {:8.4}  {r:8.4}", ghia::u_at(&lbm, u_lid, 0.5, y));
     }
-
-    println!("Lid-driven cavity ({nx}x{ny}, tau={tau}, u_lid={u_lid}):");
-    println!("  steps run            : {steps}");
-    println!("  max speed            : {vmax:.4} (lid = {u_lid})");
-    println!("  fastest node at      : ({vmax_ix}, {vmax_iy})");
-    println!("  (cavity primary-vortex benchmark is experimental)");
 }

@@ -38,8 +38,10 @@ for _ in 0..2_000 { sim.step(); }
 
 | Module | Description |
 | --- | --- |
-| `lattice` | `D2Q9` definition: velocity set, weights, equilibrium distribution. |
-| `lib` | `Lbm2D` solver — BGK collision, streaming with half-way bounce-back, macroscopic field recovery, `step_par` (`rayon`) variant; `XBoundary` (periodic / inlet–outlet / open). |
+| `lattice` | `D2Q9` definition: velocity set, weights, equilibrium distribution; `LatticeModel` trait (the seam for D3Q19/D3Q27). |
+| `collision` | `Collision` operators: `Bgk` (default) and `Trt { magic }` two-relaxation-time. |
+| `ghia` | Ghia, Ghia & Shin (1982) cavity reference profiles (Re 100 / 400) and centreline error metrics. |
+| `lib` | `Lbm2D` solver — BGK/TRT collision, streaming with half-way bounce-back, macroscopic field recovery, `step` and row-parallel `step_par` (`rayon`, bit-identical); `XBoundary` (periodic / inlet–outlet / open). |
 | `sph` | `Sph2D` weakly-compressible SPH: Poly6/Spiky/viscous kernels, Tait EOS, uniform-grid neighbour search. |
 
 ### `Lbm2D` features
@@ -50,7 +52,10 @@ for _ in 0..2_000 { sim.step(); }
 - a body-force (Guo-style velocity-shift) term for pressure-gradient /
   gravity-driven flow;
 - circular (`add_circle`) and rectangular (`add_rect`) obstacle primitives;
-- `rayon`-parallel collision sweep via `step_par`.
+- Structure-of-Arrays storage with a `wide::f64x4` SIMD collision/streaming
+  kernel and fully row-parallel `rayon` stepping (`step_par`), verified
+  against a scalar reference implementation;
+- `Lbm2D::cavity(n, re, u_lid)`: the ready-made lid-driven-cavity benchmark.
 
 ## Examples
 
@@ -58,14 +63,17 @@ Runnable with `cargo run --release --example <name> -p tpt-phys-cfd`.
 
 | Example | Demonstrates |
 | --- | --- |
-| `cavity` | Lid-driven cavity: top lid drags fluid `+x`, establishing a primary recirculating vortex. |
+| `cavity` | Lid-driven cavity (`cargo run --release --example cavity -- 66 100`): steady state, centreline error vs Ghia et al. and MLUPS. |
 | `poiseuille` | Pressure-driven channel flow; verifies the analytic parabolic (`u(y) ∝ y(H−y)`) Poiseuille profile (R² > 0.97). |
 | `flow_past_cylinder` | Uniform stream past a cylinder: steady wake, recirculation bubble, and periodic von Kármán shedding (Strouhal ≈ 0.2 at Re ≈ 130). |
 | `dam_break_sph` | SPH dam-break collapse; tracks the leading edge and confirms weakly-compressible density conservation. |
 
 ## Validations
 
-- `tests/lid_driven_cavity.rs` — lid-driven cavity: primary recirculating vortex.
+- `tests/lid_driven_cavity.rs` — lid-driven cavity at Re = 100 (34×34): centreline
+  `u(y)` / `v(x)` within ~1% of Ghia et al. (1982).
+- `tests/refined_benchmarks.rs` — `#[ignore]`d finer runs: Re = 100 (66²) and
+  Re = 400 (130²).
 - `tests/flow_past_cylinder.rs` — steady symmetric wake + recirculation at
   Re ≈ 22, von Kármán vortex shedding at Re ≈ 72.
 - SPH: `dam_break_stays_finite_and_bounded`, `settles_under_gravity`.

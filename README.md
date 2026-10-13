@@ -56,7 +56,7 @@ tpt-phys/
 └── tpt-physics-wasm       # WebAssembly playground bindings (DEM + CFD + SPH)
 ```
 
-(Validated: DEM, LBM cylinder wake (cavity is ⚠️ experimental), SPH dam-break,
+(Validated: DEM, LBM cylinder wake and lid-driven cavity (Ghia et al.), SPH dam-break,
 electro-thermal Joule heating, thermal-struct coupling, orchestrator
 co-simulation. FSI coupling is ⚠️ experimental — the current driver uses a
 lumped `LumpedStructure`, not a real `tpt-fem`-backed FEM solve. The 3-D beam /
@@ -179,7 +179,7 @@ full benchmark suite and may need more work before production use.
 | Multiphysics co-simulation (orchestrator) | ✅ Validated | `SubModel` adapters + `Simulation` step |
 | Differentiable plants (oscillator, pendulum, DEM bulk) | ✅ Validated | analytic/finite-diff Jacobian match (in `tpt-phys-orchestrator`) |
 | Cohesive bonds + inter-particle heat | ✅ Validated | new in this pass |
-| Lid-driven cavity | ⚠️ Experimental | `#[ignore]`d — primary-vortex convergence issue |
+| Lid-driven cavity (Re 100 / 400 centrelines vs published data) | ✅ Validated | centreline RMS error ≈ 0.3% (Re 100) – 1.2% (Re 400) of lid speed vs Ghia, Ghia & Shin (1982); `Lbm2D::cavity` |
 | FSI on a full FEM structure | ⚠️ Experimental | scaffold uses a lumped `LumpedStructure`; real `tpt-fem` elasticity solve is future work |
 
 ## Roadmap
@@ -221,7 +221,8 @@ that asserts the *qualitative physics*, not just "it compiles". Highlights:
 | DEM | `tests/random_close_packing.rs` | mono-disperse bed packs to the RCP fraction (~0.64) |
 | DEM | `tests/large_scale.rs` | the `rayon` stepper advances **>100k** particles stably |
 | CFD | `src/sph.rs` | SPH dam break stays bounded and settles (weakly compressible) |
-| CFD | `tests/lid_driven_cavity.rs` | lid-driven cavity: **known-failing / `#[ignore]`d** (primary-vortex convergence issue; run `cargo test --release -- --ignored`) |
+| CFD | `tests/lid_driven_cavity.rs` | lid-driven cavity, Re = 100 centreline `u(y)`, `v(x)` vs Ghia et al. (1982) |
+| CFD | `tests/refined_benchmarks.rs` | finer Re = 100 and Re = 400 Ghia runs — `#[ignore]`d for speed (`cargo test --release -p tpt-phys-cfd --test refined_benchmarks -- --ignored`) |
 | CFD | `tests/flow_past_cylinder.rs` | steady symmetric wake (low Re) and von Kármán shedding (moderate Re) |
 | FSI | `src/coupling.rs` | structure displaces under steady flow and relaxes when flow stops |
 | Electro-thermal | `src/lib.rs` | rod heats under voltage, stays finite, self-limits |
@@ -274,9 +275,10 @@ constructor JSON schema.
   a sibling repo is missing. Run `./scripts/bootstrap.sh` (or `scripts/bootstrap.ps1`)
   and clone `tpt-math` / `tpt-fem` / `tpt-science` as siblings of this directory
   (`tpt-phys-orchestrator` re-exports `tpt-sci-sim-core` from `tpt-science`).
-- **`lid_driven_cavity` test "fails"** — it is intentionally `#[ignore]`d
-  (experimental). Run it explicitly with
-  `cargo test --release -- --ignored` if you want to inspect it.
+- **Slow cavity runs** — the finer Re = 100 / Re = 400 Ghia benchmarks in
+  `tpt-phys-cfd/tests/refined_benchmarks.rs` are intentionally `#[ignore]`d
+  for speed. Run them with
+  `cargo test --release -p tpt-phys-cfd --test refined_benchmarks -- --ignored`.
 
 ## License
 

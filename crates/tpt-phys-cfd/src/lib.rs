@@ -12,13 +12,23 @@
 //! * a body-force (Guo-style velocity-shift) term so that pressure-gradient /
 //!   gravity-driven flows can be simulated,
 //! * a circular obstacle primitive for bluff-body flows,
-//! * `rayon`-friendly bulk loops.
+//! * a Structure-of-Arrays, `wide::f64x4`-vectorised and Rayon row-parallel
+//!   stepping kernel ([`Lbm2D::step`] serial, [`Lbm2D::step_par`] parallel —
+//!   bit-identical results),
+//! * selectable collision operators ([`Collision`]: BGK, TRT),
+//! * lid-driven-cavity reference data and error metrics ([`ghia`]).
 
+pub mod collision;
+pub mod ghia;
+mod kernel;
 pub mod lattice;
 pub mod sph;
 
+#[cfg(test)]
+mod reference;
+
+pub use collision::Collision;
 use lattice::D2Q9;
-use rayon::prelude::*;
 
 /// Streamwise (`x`) boundary treatment.
 #[derive(Debug, Clone, Copy)]
@@ -42,8 +52,10 @@ pub enum XBoundary {
 /// A two-dimensional D2Q9 Lattice Boltzmann solver.
 ///
 /// The lattice holds `nx * ny` nodes. A node is either fluid or solid
-/// (boundary). Distributions are stored Structure-of-Arrays as a flat `Vec` of
-/// length `nx * ny` of `[f64; 9]` (one lane per lattice velocity).
+/// (boundary). Distributions are stored Structure-of-Arrays: nine flat
+/// `Vec<f64>` of length `nx * ny` (one per lattice velocity), so neighbouring
+/// nodes are contiguous for SIMD.
+#[derive(Clone)]
 pub struct Lbm2D {
     /// Number of nodes in the `x` (streamwise) direction.
     pub nx: usize,
@@ -51,8 +63,11 @@ pub struct Lbm2D {
     pub ny: usize,
     /// BGK relaxation time `τ` (>`0.5` for stability).
     pub tau: f64,
-    /// Post-collision distributions `f_i(x)` for every node.
-    f: Vec<[f64; 9]>,
+    /// Post-stream distributions `f_k(x)`, indexed `f[k][node]`.
+    f: [Vec<f64>; 9],
+    /// Post-collision distributions (the streaming source). Solid nodes are
+    /// never written and stay zero.
+    g: [Vec<f64>; 9],
     /// Macroscopic density `ρ`.
     pub rho: Vec<f64>,
     /// Macroscopic x-velocity `u`.
@@ -65,14 +80,18 @@ pub struct Lbm2D {
     wall_vel: Vec<[f64; 2]>,
     /// Streamwise (`x`) boundary treatment.
     x_boundary: XBoundary,
+    /// Collision operator.
+    collision: Collision,
     /// Fluid force on the solid boundaries during the most recent step,
-    /// `[Fx, Fy]`, accumulated by boundary momentum exchange in
-    /// [`Lbm2D::collide`].
+    /// `[Fx, Fy]`, accumulated by boundary momentum exchange in the collision
+    /// pass.
     boundary_force: [f64; 2],
-    /// Reused streaming source buffer (a copy of the previous `f`): keeps
-    /// `stream` allocation-free — a fresh `Vec` per step showed up as real
-    /// cost in the throughput budget.
-    f_swap: Vec<[f64; 9]>,
+    /// Fluid nodes whose whole in-lattice 3×3 neighbourhood is fluid (SIMD /
+    /// bulk-copy fast path). Rebuilt when `solid` no longer equals
+    /// `solid_key`.
+    clear: Vec<bool>,
+    /// Snapshot of `solid` that `clear` was computed from.
+    solid_key: Vec<bool>,
 }
 
 impl Lbm2D {
@@ -91,16 +110,66 @@ impl Lbm2D {
             nx,
             ny,
             tau,
-            f: vec![[0.0; 9]; n],
+            f: std::array::from_fn(|_| vec![0.0; n]),
+            g: std::array::from_fn(|_| vec![0.0; n]),
             rho: vec![1.0; n],
             ux: vec![0.0; n],
             uy: vec![0.0; n],
             solid: vec![false; n],
             wall_vel: vec![[0.0; 2]; n],
             x_boundary: XBoundary::Periodic,
+            collision: Collision::Bgk,
             boundary_force: [0.0; 2],
-            f_swap: Vec::new(),
+            clear: Vec::new(),
+            solid_key: Vec::new(),
         }
+    }
+
+    /// Select the collision operator (default [`Collision::Bgk`]).
+    pub fn set_collision(&mut self, collision: Collision) {
+        if let Collision::Trt { magic } = collision {
+            assert!(magic > 0.0, "TRT magic parameter must be positive");
+        }
+        self.collision = collision;
+    }
+
+    /// The active collision operator.
+    pub fn collision(&self) -> Collision {
+        self.collision
+    }
+
+    /// Distributions of node `i` as `[f_0 … f_8]`.
+    #[cfg(test)]
+    #[inline]
+    fn node_f(&self, i: usize) -> [f64; 9] {
+        std::array::from_fn(|k| self.f[k][i])
+    }
+
+    /// Overwrite the distributions of node `i`.
+    #[inline]
+    fn set_node_f(&mut self, i: usize, v: [f64; 9]) {
+        for (k, x) in v.into_iter().enumerate() {
+            self.f[k][i] = x;
+        }
+    }
+
+    /// A ready-to-run lid-driven cavity: an `n × n` lattice enclosed by solid
+    /// walls with the top wall moving in `+x` at `u_lid`, initialised at rest.
+    ///
+    /// The fluid occupies `L = n − 2` cells (the border nodes are the walls,
+    /// whose half-way bounce-back surfaces sit half a cell inside), so the
+    /// Reynolds number is `Re = u_lid · L / ν` and the relaxation time is
+    /// `τ = ½ + 3 ν` with `ν = u_lid · L / Re`. Keep `u_lid ≲ 0.1` (Mach ≪ 1)
+    /// and `τ` comfortably above `½`; the constructor panics if `Re` is so high
+    /// for this `n` that `τ ≤ ½`. Compare against [`ghia`] reference data.
+    pub fn cavity(n: usize, re: f64, u_lid: f64) -> Self {
+        assert!(re > 0.0 && u_lid > 0.0, "re and u_lid must be positive");
+        let nu = u_lid * (n as f64 - 2.0) / re;
+        let mut sim = Lbm2D::new(n, n, 0.5 + 3.0 * nu);
+        sim.set_box_walls();
+        sim.set_moving_lid(n - 1, u_lid);
+        sim.initialise(1.0, [0.0, 0.0]);
+        sim
     }
 
     /// Linear index of node `(ix, iy)`.
@@ -197,7 +266,7 @@ impl Lbm2D {
             self.rho[i] = rho0;
             self.ux[i] = u0[0];
             self.uy[i] = u0[1];
-            self.f[i] = D2Q9::equilibrium(rho0, u0);
+            self.set_node_f(i, D2Q9::equilibrium(rho0, u0));
         }
     }
 
@@ -226,7 +295,7 @@ impl Lbm2D {
                 }
                 let w = (1.0 - d2 / r2).powi(2); // cos²-style envelope
                 let u = [self.ux[i] + dv[0] * w, self.uy[i] + dv[1] * w];
-                self.f[i] = D2Q9::equilibrium(self.rho[i], u);
+                self.set_node_f(i, D2Q9::equilibrium(self.rho[i], u));
             }
         }
     }
@@ -238,224 +307,24 @@ impl Lbm2D {
 
     /// Advance the simulation by one collision+streaming step under body-force
     /// density `force = (Fx, Fy)` (acceleration per unit mass, lattice units).
+    ///
+    /// Single-threaded; see [`Lbm2D::step_par`] for the Rayon version (same
+    /// result, bit for bit).
     pub fn step(&mut self, force: [f64; 2]) {
-        self.collide(force);
-        self.stream();
-        self.macro_fields();
+        self.step_impl(force, false);
     }
 
-    /// BGK collision with the velocity-shift body-force scheme. While
-    /// post-collision distributions are written, every link whose neighbour
-    /// is solid contributes its momentum exchange `2 f_post e_k` to the
-    /// per-step [`Lbm2D::boundary_force`] (half-way bounce-back, Ladd).
-    fn collide(&mut self, force: [f64; 2]) {
-        let tau = self.tau;
-        let nx = self.nx;
-        let ny = self.ny;
-        let mut boundary_force = [0.0_f64; 2];
-        for iy in 0..ny {
-            for ix in 0..nx {
-                let i = iy * nx + ix;
-                if self.solid[i] {
-                    continue;
-                }
-                let f = self.f[i];
-                let rho = f.iter().copied().sum::<f64>();
-                let ux = (0..9).map(|k| f[k] * D2Q9::E[k].0 as f64).sum::<f64>() / rho;
-                let uy = (0..9).map(|k| f[k] * D2Q9::E[k].1 as f64).sum::<f64>() / rho;
-
-                // Velocity used in the equilibrium is shifted by half the force
-                // (Guo forcing, explicit form): u* = u + ½ F.
-                let uxs = ux + 0.5 * force[0];
-                let uys = uy + 0.5 * force[1];
-
-                let feq = D2Q9::equilibrium(rho, [uxs, uys]);
-                for k in 0..9 {
-                    let f_post = f[k] - (1.0 / tau) * (f[k] - feq[k]);
-                    self.f[i][k] = f_post;
-                    // Momentum exchange: the distribution heading into a
-                    // solid neighbour bounces straight back, handing the
-                    // body `2 f_post e_k` of momentum this step. Neighbours
-                    // outside the lattice are never solid, so no wrap
-                    // lookup is needed here. (The moving-wall correction is
-                    // ignored — force tracking targets stationary bodies.)
-                    let (ex, ey) = D2Q9::E[k];
-                    let sx = ix as isize + ex as isize;
-                    let sy = iy as isize + ey as isize;
-                    if sx >= 0 && sx < nx as isize && sy >= 0 && sy < ny as isize {
-                        if self.solid[sy as usize * nx + sx as usize] {
-                            boundary_force[0] += 2.0 * f_post * ex as f64;
-                            boundary_force[1] += 2.0 * f_post * ey as f64;
-                        }
-                    }
-                }
-            }
-        }
-        self.boundary_force = boundary_force;
-    }
-
-    /// Streaming with half-way bounce-back at solid nodes, moving-wall
-    /// corrections, wrap/periodicity or inlet–outlet in `x`.
-    fn stream(&mut self) {
-        let nx = self.nx;
-        let ny = self.ny;
-        self.f_swap.clear();
-        self.f_swap.extend_from_slice(&self.f);
-        let f_prev = &self.f_swap;
-        for iy in 0..ny {
-            for ix in 0..nx {
-                let i = self.idx(ix, iy);
-                if self.solid[i] {
-                    continue;
-                }
-                // Zou–Hou reconstruction for the east outflow column of an
-                // `Inlet` run: the three west-pointing distributions (k = 3,
-                // 6, 7) are missing (their source lies outside the lattice),
-                // so they are rebuilt from the known post-stream set with the
-                // static density pinned to the reference — a mass-consistent
-                // pressure outlet. (A plain zero-gradient copy here let the
-                // domain fill up over time, decelerating the flow and
-                // decaying the body force.)
-                let zh = if ix == nx - 1 && matches!(self.x_boundary, XBoundary::Inlet(_)) {
-                    let row_s = iy.saturating_sub(1);
-                    let row_n = (iy + 1).min(ny - 1);
-                    let known = (
-                        f_prev[i][0],
-                        f_prev[iy * nx + ix - 1][1],
-                        f_prev[row_s * nx + ix][2],
-                        f_prev[row_n * nx + ix][4],
-                        f_prev[row_s * nx + ix - 1][5],
-                        f_prev[row_n * nx + ix - 1][8],
-                    );
-                    Some(zou_hou_east(known))
-                } else {
-                    None
-                };
-                for k in 0..9 {
-                    let (ex, ey) = D2Q9::E[k];
-                    let sx = ix as isize - ex as isize;
-                    let sy = iy as isize - ey as isize;
-                    let val = if sx < 0 || sx >= nx as isize {
-                        match self.x_boundary {
-                            XBoundary::Periodic => {
-                                let wx = wrap(sx, nx as isize);
-                                let wy = clamp_wall(sy, ny as isize);
-                                f_prev[wy * nx + wx][k]
-                            }
-                            XBoundary::Inlet(u) => {
-                                if sx < 0 {
-                                    // Entering from the west inlet.
-                                    D2Q9::equilibrium(1.0, [u, 0.0])[k]
-                                } else {
-                                    // East open (outflow) boundary: a
-                                    // density-pinned Zou–Hou pressure outlet
-                                    // for the west-pointing distributions,
-                                    // zero-gradient copy for the rest.
-                                    match k {
-                                        3 => zh.unwrap()[0],
-                                        6 => zh.unwrap()[1],
-                                        7 => zh.unwrap()[2],
-                                        _ => f_prev[iy * nx + (nx - 2)][k],
-                                    }
-                                }
-                            }
-                            XBoundary::Open => {
-                                // Downstream outflow: the west edge wraps
-                                // (periodic, well-posed inflow); the east edge
-                                // uses first-order upwind / zero-gradient,
-                                // copying its neighbouring interior column so
-                                // that mass and waves leave the domain instead
-                                // of reflecting.
-                                if sx < 0 {
-                                    let wx = wrap(sx, nx as isize);
-                                    let wy = clamp_wall(sy, ny as isize);
-                                    f_prev[wy * nx + wx][k]
-                                } else {
-                                    let c = nx - 2;
-                                    let ci = iy * nx + c;
-                                    f_prev[ci][k]
-                                }
-                            }
-                        }
-                    } else if sy < 0 || sy >= ny as isize {
-                        let wx = wrap(sx, nx as isize);
-                        let wy = clamp_wall(sy, ny as isize);
-                        let sidx = wy * nx + wx;
-                        if self.solid[sidx] {
-                            bounce(f_prev, self, i, k, sidx)
-                        } else {
-                            f_prev[sidx][k]
-                        }
-                    } else {
-                        let sidx = sy as usize * nx + sx as usize;
-                        if self.solid[sidx] {
-                            bounce(f_prev, self, i, k, sidx)
-                        } else {
-                            f_prev[sidx][k]
-                        }
-                    };
-                    self.f[i][k] = val;
-                }
-            }
-        }
+    /// Like [`Lbm2D::step`] but runs every pass row-parallel on the Rayon
+    /// pool. Results are bit-identical to the serial step.
+    pub fn step_par(&mut self, force: [f64; 2]) {
+        self.step_impl(force, true);
     }
 
     /// Recompute macroscopic density and velocity (used as a post-step check and
     /// externally after stepping).
     pub fn macro_fields(&mut self) -> (&Vec<f64>, &Vec<f64>, &Vec<f64>) {
-        for i in 0..self.rho.len() {
-            if self.solid[i] {
-                self.rho[i] = 0.0;
-                self.ux[i] = 0.0;
-                self.uy[i] = 0.0;
-                continue;
-            }
-            let f = self.f[i];
-            let rho = f.iter().copied().sum::<f64>();
-            let ux = (0..9).map(|k| f[k] * D2Q9::E[k].0 as f64).sum::<f64>() / rho;
-            let uy = (0..9).map(|k| f[k] * D2Q9::E[k].1 as f64).sum::<f64>() / rho;
-            self.rho[i] = rho;
-            self.ux[i] = ux;
-            self.uy[i] = uy;
-        }
+        self.moments_impl(false);
         (&self.rho, &self.ux, &self.uy)
-    }
-}
-
-/// Zou–Hou (1997) density-specified outflow reconstruction for the east
-/// column: given the known post-stream distributions at the boundary node
-/// `(f0, f1, f2, f4, f5, f8)` and the pinned outlet density (the lattice
-/// reference ρ = 1, with `u_y = 0`), returns the three unknown
-/// west-pointing distributions `[f3, f6, f7]`. `u_x` follows from combining
-/// mass conservation with x-momentum; the diagonal unknowns use the
-/// non-equilibrium bounce-back closure and the normal unknown is set by
-/// exact mass conservation (which is what pins the domain's density).
-#[inline]
-fn zou_hou_east(known: (f64, f64, f64, f64, f64, f64)) -> [f64; 3] {
-    let (f0, f1, f2, f4, f5, f8) = known;
-    let rho = 1.0;
-    let ux = (2.0 * (f1 + f5 + f8) + f0 + f2 + f4 - rho) / rho;
-    let ux = ux.clamp(-0.3, 0.3);
-    let feq = D2Q9::equilibrium(rho, [ux, 0.0]);
-    let f6 = feq[6] - (f5 - feq[5]);
-    let f7 = feq[7] - (f8 - feq[8]);
-    let f3 = rho - (f0 + f1 + f2 + f4 + f5 + f8) - f6 - f7;
-    [f3, f6, f7]
-}
-
-/// Half-way bounce-back value for fluid node `i`, direction `k`, whose source
-/// is the solid node `sidx`. Applies the Ladd moving-wall correction when the
-/// solid node carries a non-zero wall velocity.
-#[inline]
-fn bounce(f_prev: &[[f64; 9]], sim: &Lbm2D, i: usize, k: usize, sidx: usize) -> f64 {
-    let wv = sim.wall_vel[sidx];
-    let base = f_prev[i][D2Q9::OPP[k]];
-    if wv[0] == 0.0 && wv[1] == 0.0 {
-        base
-    } else {
-        let rho_i = sim.rho[i];
-        let eu = D2Q9::E[k].0 as f64 * wv[0] + D2Q9::E[k].1 as f64 * wv[1];
-        base + 2.0 * D2Q9::W[k] * rho_i * eu / D2Q9::CS2
     }
 }
 
@@ -493,7 +362,8 @@ impl Lbm2D {
     }
 
     /// Average x-velocity profile along `y` (averaged over the `x` interior).
-    pub fn x_velocity_profile(&self) -> Vec<f64> {        (0..self.ny)
+    pub fn x_velocity_profile(&self) -> Vec<f64> {
+        (0..self.ny)
             .map(|iy| {
                 let mut s = 0.0;
                 for ix in 0..self.nx {
@@ -507,62 +377,6 @@ impl Lbm2D {
     /// Mean x-velocity along the vertical line `ix` (for wake / cavity studies).
     pub fn x_velocity_at_column(&self, ix: usize) -> Vec<f64> {
         (0..self.ny).map(|iy| self.ux[self.idx(ix, iy)]).collect()
-    }
-}
-
-/// Convenience helpers that parallelise the collision sweep (used to exercise
-/// the `rayon` dependency path without changing numerics).
-impl Lbm2D {
-    /// Like [`Lbm2D::step`] but runs the collision sweep in parallel.
-    pub fn step_par(&mut self, force: [f64; 2]) {
-        let tau = self.tau;
-        let nx = self.nx;
-        let ny = self.ny;
-        let solid = &self.solid;
-        let (f_new, boundary_force): (Vec<[f64; 9]>, Vec<[f64; 2]>) = (0..self.rho.len())
-            .into_par_iter()
-            .map(|i| {
-                if solid[i] {
-                    return ([0.0; 9], [0.0; 2]);
-                }
-                let iy = i / nx;
-                let ix = i % nx;
-                let f = self.f[i];
-                let rho = f.iter().copied().sum::<f64>();
-                let ux = (0..9).map(|k| f[k] * D2Q9::E[k].0 as f64).sum::<f64>() / rho;
-                let uy = (0..9).map(|k| f[k] * D2Q9::E[k].1 as f64).sum::<f64>() / rho;
-                let uxs = ux + 0.5 * force[0];
-                let uys = uy + 0.5 * force[1];
-                let feq = D2Q9::equilibrium(rho, [uxs, uys]);
-                let mut out = [0.0; 9];
-                let mut link_force = [0.0; 2];
-                for k in 0..9 {
-                    let f_post = f[k] - (1.0 / tau) * (f[k] - feq[k]);
-                    out[k] = f_post;
-                    // Same boundary momentum exchange as `collide`.
-                    let (ex, ey) = D2Q9::E[k];
-                    let sx = ix as isize + ex as isize;
-                    let sy = iy as isize + ey as isize;
-                    if sx >= 0 && sx < nx as isize && sy >= 0 && sy < ny as isize {
-                        if solid[sy as usize * nx + sx as usize] {
-                            link_force[0] += 2.0 * f_post * ex as f64;
-                            link_force[1] += 2.0 * f_post * ey as f64;
-                        }
-                    }
-                }
-                (out, link_force)
-            })
-            .unzip();
-        self.f = f_new;
-        self.boundary_force = boundary_force
-            .into_iter()
-            .fold([0.0; 2], |mut acc, f| {
-                acc[0] += f[0];
-                acc[1] += f[1];
-                acc
-            });
-        self.stream();
-        self.macro_fields();
     }
 }
 
@@ -661,7 +475,7 @@ mod tests {
         for iy in 0..ny {
             for ix in 30..50 {
                 let i = sim.idx(ix, iy);
-                sim.f[i] = D2Q9::equilibrium(1.0, [0.1, 0.0]);
+                sim.set_node_f(i, D2Q9::equilibrium(1.0, [0.1, 0.0]));
             }
         }
         for _ in 0..500 {

@@ -63,6 +63,25 @@ fn demo_cfd() {
     );
 }
 
+fn demo_cavity() {
+    // Lid-driven cavity at Re = 100, validated against Ghia, Ghia & Shin (1982).
+    let n = 66;
+    let u_lid = 0.1;
+    let mut sim = Lbm2D::cavity(n, 100.0, u_lid);
+    let steps = 60 * n * n / 2;
+    let t0 = std::time::Instant::now();
+    for _ in 0..steps {
+        sim.step_par([0.0, 0.0]);
+    }
+    let mlups = (steps * n * n) as f64 / t0.elapsed().as_secs_f64() / 1e6;
+    let eu = tpt_phys_cfd::ghia::u_centerline_error(&sim, u_lid, tpt_phys_cfd::ghia::U_RE100);
+    let ev = tpt_phys_cfd::ghia::v_centerline_error(&sim, u_lid, tpt_phys_cfd::ghia::V_RE100);
+    println!(
+        "  cavity: Re=100 {n}x{n} vs Ghia et al. — centreline rms error u = {:.4}, v = {:.4} ({mlups:.0} MLUPS)",
+        eu.rms, ev.rms
+    );
+}
+
 fn demo_fsi() {
     // Partitioned FSI: a driven channel whose right wall is the fluid–structure
     // interface, coupled to a lumped structural oscillator.
@@ -147,6 +166,7 @@ fn main() {
     demo_core();
     demo_dem();
     demo_cfd();
+    demo_cavity();
     demo_fsi();
     demo_thermal_struct();
     demo_electro_thermal();
